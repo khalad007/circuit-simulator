@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useCallback, useState, useRef, useEffect } from 'react';
@@ -28,6 +29,7 @@ import TransistorNode from '@/components/nodes/TransistorNode';
 import SpeakerNode from '@/components/nodes/SpeakerNode';
 import LDRNode from '@/components/nodes/LDRNode';
 import Sidebar from '@/components/Sidebar';
+import AIAssistant from '@/components/AIAssistant'
 
 const nodeTypes = {
   battery: BatteryNode,
@@ -95,6 +97,39 @@ function CircuitFlow() {
       gainRef.current = gain;
     }
   };
+
+  const handleAIGeneratedCircuit = (newNodes: any[], newEdges: any[]) => {
+  const formattedNodes = newNodes.map((n) => ({
+    ...n,
+    data: {
+      ...n.data,
+      onChangeVoltage: handleVoltageChange,
+      onChangeResistance: handleResistanceChange,
+      onChangeCapacitance: handleCapacitanceChange,
+      onToggleSwitch: handleToggleSwitch,
+      onPushPress: handlePushPress,
+      onChangeLight: handleLightChange,
+    },
+  }));
+  setNodes(formattedNodes);
+  setEdges(newEdges);
+};
+const handleAIAnalyze = async () => {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/ai/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes, edges }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return typeof data.detail === 'string' ? data.detail : `Circuit analysis failed (${res.status}).`;
+    }
+    return data.analysis;
+  } catch (err) {
+    return 'Could not analyze circuit. Make sure the backend is running on port 8000 and try again.';
+  }
+};
 
   // PRE-BUILT CIRCUIT TEMPLATES
   const loadTemplate = (templateName: string) => {
@@ -226,6 +261,10 @@ function CircuitFlow() {
   return (
     <main className="w-screen h-screen flex bg-gray-50 overflow-hidden">
       <Sidebar onSelectTemplate={loadTemplate} />
+      <AIAssistant 
+  onGenerateCircuit={handleAIGeneratedCircuit} 
+  onAnalyzeCircuit={handleAIAnalyze} 
+/>
 
       <div className="flex-grow h-full flex flex-col">
         <header className="p-4 bg-white border-b shadow-sm z-10 flex justify-between items-center">
