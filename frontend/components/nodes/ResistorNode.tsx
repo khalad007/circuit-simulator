@@ -7,7 +7,7 @@ export default function ResistorNode({ data, id }: { data: { resistance?: number
     <div className="flex flex-col items-center border-2 border-gray-800 bg-amber-50 rounded-md p-2 w-32 shadow-md relative">
       {/* Left Handle */}
       <Handle
-        type="target"
+        type="source"
         position={Position.Left}
         id="pos"
         className="!w-3 !h-3 !bg-gray-700 cursor-pointer"
@@ -26,7 +26,7 @@ export default function ResistorNode({ data, id }: { data: { resistance?: number
           type="number"
           value={value}
           onChange={(e) => data.onChangeResistance?.(id, Number(e.target.value))}
-          className="w-16 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"
+          className="nodrag w-16 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"
         />
         <span className="text-xs font-bold">Ω</span>
       </div>

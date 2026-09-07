@@ -10,16 +10,20 @@ const components = [
   { type: 'transistor', label: 'NPN Transistor', icon: '🔀' },
   { type: 'speaker', label: 'Siren / Speaker', icon: '🔊' },
   { type: 'ldr', label: 'LDR Sensor', icon: '☀️' },
+  { type: 'voltmeter', label: 'Voltmeter (parallel)', icon: '🔎' },
+  { type: 'ammeter', label: 'Ammeter (series)', icon: '⚙️' },
+  { type: 'oscilloscope', label: 'Oscilloscope', icon: '📈' },
+  { type: 'junction', label: 'Wire Junction', icon: '●' },
 ];
 
-export default function Sidebar({ onSelectTemplate }: { onSelectTemplate: (templateName: string) => void }) {
+export default function Sidebar({ onSelectTemplate, onAddComponent }: { onSelectTemplate: (templateName: string) => void; onAddComponent: (type: string) => void }) {
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
     event.dataTransfer.effectAllowed = 'move';
   };
 
   return (
-    <aside className="w-60 bg-white border-r border-gray-200 p-4 flex flex-col gap-4 shadow-md z-10 overflow-y-auto">
+    <aside className="w-52 shrink-0 bg-white border-r border-gray-200 p-4 flex flex-col gap-4 shadow-md z-10 overflow-y-auto">
       {/* PRE-BUILT CIRCUITS SECTION */}
       <div>
         <h2 className="text-xs font-extrabold text-blue-600 uppercase tracking-wider mb-2">⚡ Pre-Built Circuits</h2>
@@ -52,18 +56,20 @@ export default function Sidebar({ onSelectTemplate }: { onSelectTemplate: (templ
         <h2 className="text-xs font-extrabold text-gray-700 uppercase tracking-wider mb-2">Components</h2>
         <div className="flex flex-col gap-2">
           {components.map((item) => (
-            <div
+            <button
               key={item.type}
+              onClick={() => onAddComponent(item.type)}
               onDragStart={(e) => onDragStart(e, item.type)}
               draggable
               className="flex items-center gap-3 p-2 bg-gray-50 border border-gray-300 rounded-lg cursor-grab hover:bg-blue-50 hover:border-blue-400 transition-all shadow-sm"
             >
               <span className="text-base">{item.icon}</span>
               <span className="text-xs font-semibold text-gray-800">{item.label}</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
+      <p className="text-[10px] text-slate-500">Click to add or drag onto the canvas. Wire voltmeters and scopes across two terminals; put ammeters in series.</p>
     </aside>
   );
 }

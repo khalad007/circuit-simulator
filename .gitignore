@@ -3,4 +3,5 @@
 "backend/__pycache__/" 
 node_modules/
 backend/venv/
+backend/__pycache__/
 .env

@@ -13,7 +13,7 @@ export default function BatteryNode({ data, id }: { data: { voltage?: number; on
           type="number"
           value={voltage}
           onChange={(e) => data.onChangeVoltage?.(id, Number(e.target.value))}
-          className="w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-bold font-mono"
+          className="nodrag w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-bold font-mono"
         />
         <span className="text-xs font-bold text-gray-700">V</span>
       </div>

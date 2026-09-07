@@ -1,24 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import {
-  ReactFlow,
-  Background,
-  Controls,
-  applyNodeChanges,
-  applyEdgeChanges,
-  addEdge,
-  Node,
-  Edge,
-  NodeChange,
-  EdgeChange,
-  Connection,
-  useReactFlow,
-  ReactFlowProvider,
+  ReactFlow, Background, Controls, applyNodeChanges, applyEdgeChanges, addEdge,
+  type Node, type Edge, type NodeChange, type EdgeChange, type Connection,
+  useReactFlow, ReactFlowProvider, ConnectionMode, getNodesBounds, getViewportForBounds,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
 import BatteryNode from '@/components/nodes/BatteryNode';
 import LEDNode from '@/components/nodes/LEDNode';
 import ResistorNode from '@/components/nodes/ResistorNode';
@@ -28,292 +16,217 @@ import CapacitorNode from '@/components/nodes/CapacitorNode';
 import TransistorNode from '@/components/nodes/TransistorNode';
 import SpeakerNode from '@/components/nodes/SpeakerNode';
 import LDRNode from '@/components/nodes/LDRNode';
+import { MeterNode, OscilloscopeNode, JunctionNode } from '@/components/nodes/InstrumentNode';
 import Sidebar from '@/components/Sidebar';
-import AIAssistant from '@/components/AIAssistant'
+import AIAssistant from '@/components/AIAssistant';
+import ChallengePanel from '@/components/ChallengePanel';
+import { api, circuitPayload, componentTypes, defaults, download, parseCircuit, saveCircuit, type Simulation } from '@/lib/circuit';
+import { template } from '@/lib/templates';
 
 const nodeTypes = {
-  battery: BatteryNode,
-  led: LEDNode,
-  resistor: ResistorNode,
-  switch: SwitchNode,
-  pushbutton: PushButtonNode,
-  capacitor: CapacitorNode,
-  transistor: TransistorNode,
-  speaker: SpeakerNode,
-  ldr: LDRNode,
+  battery: BatteryNode, led: LEDNode, resistor: ResistorNode, switch: SwitchNode,
+  pushbutton: PushButtonNode, capacitor: CapacitorNode, transistor: TransistorNode,
+  speaker: SpeakerNode, ldr: LDRNode, voltmeter: MeterNode, ammeter: MeterNode,
+  oscilloscope: OscilloscopeNode, junction: JunctionNode,
 };
-
-let idCount = 100;
-const getId = () => `node_${idCount++}`;
 
 function CircuitFlow() {
-  const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
-
+  const wrapper = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const flow = useReactFlow();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<Simulation | null>(null);
+  const [notice, setNotice] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [frequency, setFrequency] = useState(300);
+  const [resetToken, setResetToken] = useState(0);
+  const startTime = useRef(0);
+  const audio = useRef<{ ctx: AudioContext; oscillator: OscillatorNode; gain: GainNode } | null>(null);
+  const pitch = useRef(300);
+  const change = useCallback((id: string, key: string, value: unknown) => {
+    setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n));
+  }, []);
+  const handlers = useMemo(() => ({
+    onChangeVoltage: (id: string, value: number) => change(id, 'voltage', value),
+    onChangeResistance: (id: string, value: number) => change(id, 'resistance', value),
+    onChangeCapacitance: (id: string, value: number) => change(id, 'capacitance', value),
+    onChangeLight: (id: string, value: number) => change(id, 'lightLevel', value),
+    onPushPress: (id: string, value: boolean) => change(id, 'isPressed', value),
+    onToggleSwitch: (id: string) => setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, isOpen: !n.data.isOpen } } : n)),
+  }), [change]);
 
-  // Web Audio API refs for Real Emergency Siren Pitch
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const oscRef = useRef<OscillatorNode | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
-  const sirenPitchRef = useRef<number>(300); // Frequency in Hz
+  const mute = useCallback(() => {
+    if (audio.current) audio.current.gain.gain.setValueAtTime(0, audio.current.ctx.currentTime);
+  }, []);
+  const stop = useCallback(() => { setRunning(false); mute(); }, [mute]);
+  useEffect(() => () => { audio.current?.oscillator.stop(); void audio.current?.ctx.close(); }, []);
 
-  // Handlers for node inputs
-  const handleVoltageChange = (id: string, val: number) => setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, voltage: val } } : n)));
-  const handleResistanceChange = (id: string, val: number) => setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, resistance: val } } : n)));
-  const handleCapacitanceChange = (id: string, val: number) => setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, capacitance: val } } : n)));
-  const handleToggleSwitch = (id: string) => setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, isOpen: !n.data.isOpen } } : n)));
-  const handleLightChange = (id: string, val: number) => setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, lightLevel: val } } : n)));
-
-  const handlePushPress = (id: string, pressed: boolean) => {
-    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, isPressed: pressed } } : n)));
-  };
-
-  const onNodesChange = useCallback((changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
-  const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)), []);
-  const onEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => setEdges((eds) => eds.filter((e) => e.id !== edge.id)), []);
-
-  // Web Audio Initialization
   const initAudio = () => {
-    if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'sawtooth'; // Siren waveform
-      osc.frequency.setValueAtTime(300, ctx.currentTime);
-      gain.gain.setValueAtTime(0, ctx.currentTime);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-
-      audioCtxRef.current = ctx;
-      oscRef.current = osc;
-      gainRef.current = gain;
-    }
+    try {
+      if (!audio.current) {
+        const ctx = new AudioContext();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = 'sawtooth'; oscillator.frequency.value = 300; gain.gain.value = 0;
+        oscillator.connect(gain); gain.connect(ctx.destination); oscillator.start();
+        audio.current = { ctx, oscillator, gain };
+      }
+      void audio.current.ctx.resume();
+    } catch { setNotice('Audio is unavailable in this browser; visual simulation remains available.'); }
   };
 
-  const handleAIGeneratedCircuit = (newNodes: any[], newEdges: any[]) => {
-  const formattedNodes = newNodes.map((n) => ({
-    ...n,
-    data: {
-      ...n.data,
-      onChangeVoltage: handleVoltageChange,
-      onChangeResistance: handleResistanceChange,
-      onChangeCapacitance: handleCapacitanceChange,
-      onToggleSwitch: handleToggleSwitch,
-      onPushPress: handlePushPress,
-      onChangeLight: handleLightChange,
-    },
-  }));
-  setNodes(formattedNodes);
-  setEdges(newEdges);
-};
-const handleAIAnalyze = async () => {
-  try {
-    const res = await fetch('http://127.0.0.1:8000/api/ai/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes, edges }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      return typeof data.detail === 'string' ? data.detail : `Circuit analysis failed (${res.status}).`;
-    }
-    return data.analysis;
-  } catch (err) {
-    return 'Could not analyze circuit. Make sure the backend is running on port 8000 and try again.';
-  }
-};
-
-  // PRE-BUILT CIRCUIT TEMPLATES
-  const loadTemplate = (templateName: string) => {
-    if (templateName === 'siren') {
-      setNodes([
-        { id: 'b1', type: 'battery', position: { x: 100, y: 150 }, data: { voltage: 12, onChangeVoltage: handleVoltageChange } },
-        { id: 'pb1', type: 'pushbutton', position: { x: 300, y: 100 }, data: { isPressed: false, onPushPress: handlePushPress } },
-        { id: 'sp1', type: 'speaker', position: { x: 520, y: 150 }, data: { isPlaying: false } },
-      ]);
-      setEdges([
-        { id: 'e1', source: 'b1', sourceHandle: 'pos', target: 'pb1', targetHandle: 'pos', animated: true },
-        { id: 'e2', source: 'pb1', sourceHandle: 'neg', target: 'sp1', targetHandle: 'pos', animated: true },
-        { id: 'e3', source: 'b1', sourceHandle: 'neg', target: 'sp1', targetHandle: 'neg', animated: true },
-      ]);
-    } else if (templateName === 'flipflop') {
-      setNodes([
-        { id: 'b1', type: 'battery', position: { x: 100, y: 200 }, data: { voltage: 9, onChangeVoltage: handleVoltageChange } },
-        { id: 'r1', type: 'resistor', position: { x: 300, y: 50 }, data: { resistance: 470, onChangeResistance: handleResistanceChange } },
-        { id: 'r2', type: 'resistor', position: { x: 300, y: 350 }, data: { resistance: 470, onChangeResistance: handleResistanceChange } },
-        { id: 'led1', type: 'led', position: { x: 500, y: 50 }, data: { status: 'ON' } },
-        { id: 'led2', type: 'led', position: { x: 500, y: 350 }, data: { status: 'OFF' } },
-        { id: 'q1', type: 'transistor', position: { x: 700, y: 50 }, data: {} },
-        { id: 'q2', type: 'transistor', position: { x: 700, y: 350 }, data: {} },
-        { id: 'c1', type: 'capacitor', position: { x: 500, y: 180 }, data: { capacitance: 10, onChangeCapacitance: handleCapacitanceChange } },
-        { id: 'c2', type: 'capacitor', position: { x: 500, y: 260 }, data: { capacitance: 10, onChangeCapacitance: handleCapacitanceChange } },
-      ]);
-      setEdges([
-        { id: 'e1', source: 'b1', sourceHandle: 'pos', target: 'r1', targetHandle: 'pos', animated: true },
-        { id: 'e2', source: 'b1', sourceHandle: 'pos', target: 'r2', targetHandle: 'pos', animated: true },
-        { id: 'e3', source: 'r1', sourceHandle: 'neg', target: 'led1', targetHandle: 'pos', animated: true },
-        { id: 'e4', source: 'r2', sourceHandle: 'neg', target: 'led2', targetHandle: 'pos', animated: true },
-      ]);
-    } else if (templateName === 'ldr') {
-      setNodes([
-        { id: 'b1', type: 'battery', position: { x: 100, y: 150 }, data: { voltage: 9, onChangeVoltage: handleVoltageChange } },
-        { id: 'ldr1', type: 'ldr', position: { x: 300, y: 100 }, data: { lightLevel: 20, onChangeLight: handleLightChange } },
-        { id: 'led1', type: 'led', position: { x: 520, y: 150 }, data: { status: 'OFF' } },
-      ]);
-      setEdges([
-        { id: 'e1', source: 'b1', sourceHandle: 'pos', target: 'ldr1', targetHandle: 'pos', animated: true },
-        { id: 'e2', source: 'ldr1', sourceHandle: 'neg', target: 'led1', targetHandle: 'pos', animated: true },
-        { id: 'e3', source: 'b1', sourceHandle: 'neg', target: 'led1', targetHandle: 'neg', animated: true },
-      ]);
-    }
-  };
-
-  // DRAG AND DROP HANDLERS
-  const onDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const type = e.dataTransfer.getData('application/reactflow');
-      if (!type) return;
-
-      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const newNode: Node = {
-        id: getId(),
-        type,
-        position,
-        data: {
-          voltage: 9, resistance: 330, capacitance: 10, isOpen: true, isPressed: false, lightLevel: 50, status: 'OFF',
-          onChangeVoltage: handleVoltageChange, onChangeResistance: handleResistanceChange, onChangeCapacitance: handleCapacitanceChange,
-          onToggleSwitch: handleToggleSwitch, onPushPress: handlePushPress, onChangeLight: handleLightChange,
-        },
-      };
-      setNodes((nds) => nds.concat(newNode));
-    },
-    [screenToFlowPosition]
-  );
-
-  // REAL-TIME SIMULATION LOOP (Siren Audio & Flip-Flop Alternating Pulsing)
+  // Runtime readings are separate from the editable graph. Only electrical edits restart polling.
+  const payload = JSON.stringify(circuitPayload(nodes, edges));
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    if (isSimulating) {
-      interval = setInterval(async () => {
-        try {
-          const res = await fetch('http://127.0.0.1:8000/api/simulate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nodes, edges }),
-          });
-          const result = await res.json();
-
-          // Handle Emergency Siren Sound Pitch Sweep
-          if (result.speaker_active && gainRef.current && oscRef.current && audioCtxRef.current) {
-            gainRef.current.gain.setValueAtTime(0.3, audioCtxRef.current.currentTime);
-            if (result.siren_pitch === 'RISING') {
-              sirenPitchRef.current = Math.min(sirenPitchRef.current + 30, 1200); // Ramp up pitch
-            }
-            oscRef.current.frequency.setValueAtTime(sirenPitchRef.current, audioCtxRef.current.currentTime);
-          } else if (gainRef.current && audioCtxRef.current) {
-            if (sirenPitchRef.current > 300) {
-              sirenPitchRef.current = Math.max(sirenPitchRef.current - 40, 300); // Ramp down pitch
-              if (oscRef.current) oscRef.current.frequency.setValueAtTime(sirenPitchRef.current, audioCtxRef.current.currentTime);
-            } else {
-              gainRef.current.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
-            }
-          }
-
-          // Handle Flip-Flop Alternating Swap Logic
-          if (result.is_flipflop) {
-            setNodes((nds) => {
-              const leds = nds.filter((n) => n.type === 'led');
-              if (leds.length >= 2) {
-                const firstOn = leds[0].data.status === 'ON';
-                return nds.map((n) => {
-                  if (n.id === leds[0].id) return { ...n, data: { ...n.data, status: firstOn ? 'OFF' : 'ON' } };
-                  if (n.id === leds[1].id) return { ...n, data: { ...n.data, status: firstOn ? 'ON' : 'OFF' } };
-                  return n;
-                });
-              }
-              return nds;
-            });
-          } else if (result.led_states) {
-            setNodes((nds) =>
-              nds.map((n) => (n.type === 'led' ? { ...n, data: { ...n.data, status: result.led_states[n.id] || 'OFF' } } : n))
-            );
-          }
-        } catch (err) {
-          console.error(err);
+    if (!running) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let previousTime = performance.now();
+    const tick = async () => {
+      try {
+        const time = (performance.now() - startTime.current) / 1000;
+        const next = await api<Simulation>('simulate', { ...JSON.parse(payload), elapsed: time }, controller.signal);
+        if (controller.signal.aborted) return;
+        setResult(next); setElapsed(time);
+        const delta = Math.min(0.5, (performance.now() - previousTime) / 1000);
+        previousTime = performance.now();
+        if (next.short_circuit) { setNotice(next.alerts.join(' ')); stop(); return; }
+        const burnt = Object.entries(next.led_states).filter(([, status]) => status === 'BURNT').map(([id]) => id);
+        if (burnt.length) setNodes(current => current.map(n => burnt.includes(n.id) && n.data.status !== 'BURNT' ? { ...n, data: { ...n.data, status: 'BURNT' } } : n));
+        pitch.current = next.speaker_active ? Math.min(1200, pitch.current + delta * 240) : Math.max(300, pitch.current - delta * 320);
+        setFrequency(pitch.current);
+        if (audio.current) {
+          const { ctx, oscillator, gain } = audio.current;
+          oscillator.frequency.setTargetAtTime(pitch.current, ctx.currentTime, 0.03);
+          gain.gain.setTargetAtTime(next.speaker_active ? 0.08 : 0, ctx.currentTime, 0.03);
         }
-      }, 150);
-    }
+        timer = setTimeout(tick, 100);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setNotice(error instanceof Error ? error.message : 'Simulation failed.'); stop();
+      }
+    };
+    void tick();
+    return () => { controller.abort(); clearTimeout(timer); mute(); };
+  }, [running, payload, stop, mute]);
 
-    return () => clearInterval(interval);
-  }, [isSimulating, nodes, edges]);
+  const displayNodes = nodes.map(n => ({ ...n, data: {
+    ...n.data, ...handlers,
+    status: n.data.status === 'BURNT' ? 'BURNT' : running ? result?.led_states[n.id] ?? 'OFF' : 'OFF',
+    isPlaying: running && !!result?.speaker_active && (result.measurements[n.id]?.current_ma ?? 0) > 0,
+    reading: result?.instruments[n.id], running, elapsed, frequency, resetToken,
+  } }));
+  const displayEdges = edges.map(e => ({ ...e, animated: running && !result?.short_circuit,
+    style: { stroke: result?.fault_edges.includes(e.id) ? '#dc2626' : '#64748b', strokeWidth: result?.fault_edges.includes(e.id) ? 4 : 2 },
+  }));
 
-  return (
-    <main className="w-screen h-screen flex bg-gray-50 overflow-hidden">
-      <Sidebar onSelectTemplate={loadTemplate} />
-      <AIAssistant 
-  onGenerateCircuit={handleAIGeneratedCircuit} 
-  onAnalyzeCircuit={handleAIAnalyze} 
-/>
+  const replaceCircuit = (value: unknown) => {
+    const next = parseCircuit(value);
+    stop(); setResult(null); setNotice(''); setNodes(next.nodes); setEdges(next.edges); setResetToken(t => t + 1); setElapsed(0);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (next.viewport) void flow.setViewport(next.viewport);
+      else void flow.fitView({ padding: 0.2 });
+    }));
+  };
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    setNodes(current => applyNodeChanges(changes, current));
+    const removed = new Set(changes.filter(c => c.type === 'remove').map(c => c.id));
+    if (removed.size) setEdges(current => current.filter(e => !removed.has(e.source) && !removed.has(e.target)));
+  }, []);
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(current => applyEdgeChanges(changes, current)), []);
+  const onConnect = useCallback((connection: Connection) => setEdges(current => addEdge(connection, current)), []);
+  const addComponent = (type: string, position = flow.screenToFlowPosition({ x: (wrapper.current?.getBoundingClientRect().left ?? 240) + 200, y: (wrapper.current?.getBoundingClientRect().top ?? 250) + 130 })) => {
+    if (!componentTypes.includes(type)) return;
+    setNodes(current => current.concat({ id: crypto.randomUUID(), type, position, data: { ...defaults } }));
+  };
+  const splitWire = (event: React.MouseEvent, edge: Edge) => {
+    const ammeter = nodes.find(n => n.selected && n.type === 'ammeter' && !edges.some(e => e.source === n.id || e.target === n.id));
+    const id = ammeter?.id ?? crypto.randomUUID();
+    if (!ammeter) addJunction();
+    function addJunction() { setNodes(current => current.concat({ id, type: 'junction', position: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), data: {} })); }
+    setEdges(current => current.filter(e => e.id !== edge.id).concat([
+      { id: crypto.randomUUID(), source: edge.source, sourceHandle: edge.sourceHandle, target: id, targetHandle: 'pos' },
+      { id: crypto.randomUUID(), source: id, sourceHandle: ammeter ? 'neg' : 'pos', target: edge.target, targetHandle: edge.targetHandle },
+    ]));
+    setNotice(ammeter ? 'Ammeter inserted in series. Start the simulator to read current.' : 'Junction added. Connect an instrument probe to the junction.');
+  };
 
-      <div className="flex-grow h-full flex flex-col">
-        <header className="p-4 bg-white border-b shadow-sm z-10 flex justify-between items-center">
-          <h1 className="font-bold text-xl text-gray-800">Circuit Engineering Studio</h1>
-          <div className="flex gap-2">
-            <button onClick={() => setEdges([])} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-xs font-medium border hover:bg-gray-200">
-              Clear Wires
-            </button>
-            <button
-              onClick={() => {
-                initAudio();
-                setIsSimulating(!isSimulating);
-              }}
-              className={`px-5 py-2 text-white rounded-md text-sm font-medium transition-colors shadow-sm ${
-                isSimulating ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}
-            >
-              {isSimulating ? 'Stop Simulator' : 'Start Simulator'}
-            </button>
-          </div>
-        </header>
+  const save = () => {
+    const url = URL.createObjectURL(new Blob([saveCircuit(nodes, edges, flow.getViewport())], { type: 'application/json' }));
+    download(url, 'circuit.json'); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const load = async (file?: File) => {
+    if (!file) return;
+    try {
+      if (file.size > 2_000_000) throw new Error('Choose a circuit JSON smaller than 2 MB.');
+      replaceCircuit(JSON.parse(await file.text())); setNotice('Circuit loaded. Click Start Simulator when ready.');
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load circuit.'); }
+    finally { if (fileInput.current) fileInput.current.value = ''; }
+  };
+  const exportPng = async () => {
+    setExporting(true);
+    try {
+      const viewport = wrapper.current?.querySelector<HTMLElement>('.react-flow__viewport');
+      if (!viewport || !nodes.length) throw new Error('Add components before exporting.');
+      const { toPng } = await import('html-to-image');
+      const bounds = getNodesBounds(flow.getNodes());
+      // Include handles and labels outside component boxes, and fit off-screen nodes.
+      const padded = { x: bounds.x - 40, y: bounds.y - 40, width: bounds.width + 80, height: bounds.height + 80 };
+      const width = 1600, height = Math.min(2000, Math.max(900, Math.round(width * padded.height / Math.max(padded.width, 1))));
+      const transform = getViewportForBounds(padded, width, height, 0.01, 2, 0.05);
+      const url = await toPng(viewport, { backgroundColor: '#ffffff', width, height, pixelRatio: 1, skipFonts: true,
+        style: { width: `${width}px`, height: `${height}px`, transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})` },
+        filter: element => !(element instanceof HTMLElement && (element.classList.contains('react-flow__nodesselection') || element.classList.contains('react-flow__selection'))),
+      });
+      download(url, 'circuit.png'); setNotice('PNG exported.');
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not export PNG.'); }
+    finally { setExporting(false); }
+  };
 
-        <div className="flex-grow w-full h-full" ref={reactFlowWrapper}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onEdgeClick={onEdgeClick}
-            onDrop={onDrop}
-            onDragOver={onDragOver}
-            nodeTypes={nodeTypes}
-            isValidConnection={() => true}
-            fitView
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
+  return <main className="flex h-screen w-screen overflow-hidden bg-slate-50">
+    <Sidebar onSelectTemplate={name => replaceCircuit(template(name))} onAddComponent={addComponent} />
+    <div className="flex min-w-0 flex-1 flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b bg-white p-4 shadow-sm">
+        <div><h1 className="text-lg font-bold text-slate-800">Circuit Engineering Studio</h1><p className="text-[11px] text-slate-500">Build · measure · experiment</p></div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={save} className="studio-button">Save JSON</button>
+          <button onClick={() => fileInput.current?.click()} className="studio-button">Load JSON</button>
+          <input ref={fileInput} type="file" accept=".json,application/json" className="hidden" aria-label="Load circuit JSON" onChange={e => void load(e.target.files?.[0])} />
+          <button onClick={exportPng} disabled={exporting || !nodes.length} className="studio-button">{exporting ? 'Exporting…' : 'Export PNG'}</button>
+          <button onClick={() => { stop(); setEdges([]); setResult(null); }} className="studio-button">Clear Wires</button>
+          <button onClick={() => { stop(); setNodes(current => current.map(n => n.type === 'led' ? { ...n, data: { ...n.data, status: 'OFF' } } : n)); setResult(null); setNotice('LEDs repaired. Fix the wiring before restarting.'); }} className="studio-button">Repair LEDs</button>
+          <button onClick={() => {
+            if (running) stop();
+            else { setNotice(''); setResult(null); pitch.current = 300; setFrequency(300); startTime.current = performance.now(); setElapsed(0); setResetToken(t => t + 1); initAudio(); setRunning(true); }
+          }} className={`rounded-md px-4 py-2 text-xs font-bold text-white ${running ? 'bg-red-600' : 'bg-emerald-700'}`}>{running ? 'Stop Simulator' : 'Start Simulator'}</button>
         </div>
+      </header>
+      <div className="max-h-[38vh] shrink-0 overflow-y-auto">
+        <AIAssistant onGenerateCircuit={(newNodes, newEdges) => replaceCircuit({ nodes: newNodes, edges: newEdges })} onAnalyzeCircuit={async () => {
+          try { return (await api<{ analysis: string }>('ai/analyze', circuitPayload(nodes, edges))).analysis; }
+          catch (error) { return error instanceof Error ? error.message : 'Could not analyze circuit.'; }
+        }} />
+        <ChallengePanel nodes={nodes} edges={edges} />
+        {(notice || !!result?.alerts.length) && <div role="alert" aria-label="Studio notification" className={`border-b px-4 py-2 text-xs ${result?.short_circuit || result?.alerts.length ? 'border-red-200 bg-red-50 text-red-800' : 'bg-blue-50 text-blue-900'}`}>{notice}{result?.alerts.filter(a => a !== notice).map(a => <p key={a}>{a}</p>)}</div>}
       </div>
-    </main>
-  );
+      <div className="border-b bg-white px-4 py-2 text-[11px] text-slate-500">
+        Connect any terminals. Double-click a wire for a probe junction, or select an unconnected ammeter first to insert it in series. Select + Delete to remove.
+      </div>
+      <div className="min-h-0 flex-1" ref={wrapper}>
+        <ReactFlow nodes={displayNodes} edges={displayEdges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          onConnect={onConnect} onEdgeDoubleClick={splitWire} connectionMode={ConnectionMode.Loose}
+          onDrop={e => { e.preventDefault(); addComponent(e.dataTransfer.getData('application/reactflow'), flow.screenToFlowPosition({ x: e.clientX, y: e.clientY })); }}
+          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+          minZoom={0.05} maxZoom={4} deleteKeyCode={['Backspace', 'Delete']} fitView>
+          <Background /><Controls />
+        </ReactFlow>
+      </div>
+      <footer className="border-t bg-white px-4 py-1.5 text-[10px] text-slate-500">Educational model · one DC battery · LED ≈ 2 V + 10 Ω · capacitors open at DC · siren/flip-flop use simplified behavioral timing.</footer>
+    </div>
+  </main>;
 }
 
-export default function CircuitSimulator() {
-  return (
-    <ReactFlowProvider>
-      <CircuitFlow />
-    </ReactFlowProvider>
-  );
-}
+export default function CircuitSimulator() { return <ReactFlowProvider><CircuitFlow /></ReactFlowProvider>; }

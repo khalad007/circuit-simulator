@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 
-export default function LEDNode({ data }: { data: { status?: 'OFF' | 'ON' | 'BLOWN' } }) {
+export default function LEDNode({ data }: { data: { status?: string } }) {
   const status = data.status || 'OFF';
 
   return (
@@ -8,7 +8,7 @@ export default function LEDNode({ data }: { data: { status?: 'OFF' | 'ON' | 'BLO
       {/* POSITIVE TERMINAL */}
       <div className="absolute -top-3 left-3 flex flex-col items-center">
         <Handle
-          type="target"
+          type="source"
           position={Position.Top}
           id="pos"
           className="!w-4 !h-4 !bg-red-500 !border-2 !border-white cursor-pointer"
@@ -19,7 +19,7 @@ export default function LEDNode({ data }: { data: { status?: 'OFF' | 'ON' | 'BLO
       {/* NEGATIVE TERMINAL */}
       <div className="absolute -top-3 right-3 flex flex-col items-center">
         <Handle
-          type="target"
+          type="source"
           position={Position.Top}
           id="neg"
           className="!w-4 !h-4 !bg-gray-800 !border-2 !border-white cursor-pointer"
@@ -30,12 +30,12 @@ export default function LEDNode({ data }: { data: { status?: 'OFF' | 'ON' | 'BLO
       <div className="text-xs font-bold my-2 pt-2">LED</div>
 
       {/* Dynamic Visual State */}
-      {status === 'BLOWN' ? (
-        <div className="flex flex-col items-center animate-bounce">
+      {status === 'BURNT' || status === 'BLOWN' ? (
+        <div className="flex flex-col items-center led-explosion" role="status" aria-label="LED burnt out">
           <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-xl border-2 border-red-600 shadow-[0_0_20px_rgba(220,38,38,1)]">
             💥
           </div>
-          <span className="text-[10px] text-red-600 font-extrabold mt-1 uppercase tracking-wider">BURNED OUT!</span>
+          <span className="text-[10px] text-red-600 font-extrabold mt-1 uppercase tracking-wider">BURNT</span>
         </div>
       ) : (
         <div

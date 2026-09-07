@@ -11,7 +11,7 @@ export default function CapacitorNode({
 
   return (
     <div className="flex flex-col items-center border-2 border-gray-800 bg-cyan-50 rounded-md p-2 w-32 shadow-md relative">
-      <Handle type="target" position={Position.Left} id="pos" className="!w-3 !h-3 !bg-gray-700 cursor-pointer" />
+      <Handle type="source" position={Position.Left} id="pos" className="!w-3 !h-3 !bg-gray-700 cursor-pointer" />
 
       <div className="text-[11px] font-bold text-gray-700">Capacitor</div>
 
@@ -28,7 +28,7 @@ export default function CapacitorNode({
           type="number"
           value={capacitance}
           onChange={(e) => data.onChangeCapacitance?.(id, Number(e.target.value))}
-          className="w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"
+          className="nodrag w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"
         />
         <span className="text-xs font-bold">µF</span>
       </div>

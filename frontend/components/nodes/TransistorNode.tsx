@@ -7,13 +7,13 @@ export default function TransistorNode() {
 
       {/* Collector (Top) */}
       <div className="absolute -top-3 right-4 flex flex-col items-center">
-        <Handle type="target" position={Position.Top} id="collector" className="!w-3 !h-3 !bg-blue-600" />
+        <Handle type="source" position={Position.Top} id="collector" className="!w-3 !h-3 !bg-blue-600" />
         <span className="text-[9px] font-bold mt-3">C</span>
       </div>
 
       {/* Base (Left) */}
       <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 flex items-center">
-        <Handle type="target" position={Position.Left} id="base" className="!w-3 !h-3 !bg-amber-600" />
+        <Handle type="source" position={Position.Left} id="base" className="!w-3 !h-3 !bg-amber-600" />
         <span className="text-[9px] font-bold ml-4">B</span>
       </div>
 

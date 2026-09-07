@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import type { Node, Edge } from '@xyflow/react';
 
 export default function AIAssistant({
   onGenerateCircuit,
   onAnalyzeCircuit,
 }: {
-  onGenerateCircuit: (nodes: any[], edges: any[]) => void;
+  onGenerateCircuit: (nodes: Node[], edges: Edge[]) => void;
   onAnalyzeCircuit: () => Promise<string>;
 }) {
   const [prompt, setPrompt] = useState('');
@@ -41,14 +42,14 @@ export default function AIAssistant({
 
   const handleAnalyze = async () => {
     setLoading(true);
-    const feedback = await onAnalyzeCircuit();
-    setAnalysis(feedback);
-    setLoading(false);
+    try { setAnalysis(await onAnalyzeCircuit()); }
+    catch (error) { setAnalysis(error instanceof Error ? error.message : 'Could not analyze circuit.'); }
+    finally { setLoading(false); }
   };
 
   return (
     <div className="bg-white border-b p-3 flex flex-col gap-2 shadow-sm">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           type="text"
           value={prompt}
@@ -58,7 +59,7 @@ export default function AIAssistant({
         />
         <button
           onClick={handleGenerate}
-          disabled={loading}
+          disabled={loading || !prompt.trim()}
           className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-1.5 rounded-md transition-all disabled:opacity-50"
         >
           {loading ? 'Generating...' : 'Generate Circuit'}
@@ -74,7 +75,7 @@ export default function AIAssistant({
 
       {analysis && (
         <div className="p-2 bg-indigo-50 border border-indigo-200 rounded text-xs text-indigo-900 font-medium">
-          💡 <strong>AI Doctor:</strong> {analysis}
+          💡 <strong>AI Assistant:</strong> {analysis}
         </div>
       )}
     </div>
