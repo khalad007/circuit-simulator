@@ -20,6 +20,7 @@ import { MeterNode, OscilloscopeNode, JunctionNode } from '@/components/nodes/In
 import Sidebar from '@/components/Sidebar';
 import AIAssistant from '@/components/AIAssistant';
 import ChallengePanel from '@/components/ChallengePanel';
+import ClearCanvasButton from '@/components/ClearCanvasButton';
 import { api, circuitPayload, componentTypes, defaults, download, parseCircuit, saveCircuit, type Simulation } from '@/lib/circuit';
 import { template } from '@/lib/templates';
 
@@ -242,6 +243,11 @@ function CircuitFlow() {
           <button onClick={exportPng} disabled={exporting || !nodes.length} className="studio-button">{exporting ? 'Exporting…' : 'Export PNG'}</button>
           <button onClick={() => { stop(); setEdges([]); setResult(null); }} className="studio-button">Clear Wires</button>
           <button onClick={() => { stop(); setNodes(current => current.map(n => n.type === 'led' ? { ...n, data: { ...n.data, status: 'OFF' } } : n)); setResult(null); setNotice('LEDs repaired. Fix the wiring before restarting.'); }} className="studio-button">Repair LEDs</button>
+          <ClearCanvasButton onConfirm={() => {
+            stop(); setNodes([]); setEdges([]); setResult(null); setNotice('');
+            setElapsed(0); pitch.current = 300; setFrequency(300); setResetToken(t => t + 1);
+            void flow.setViewport({ x: 0, y: 0, zoom: 1 });
+          }} />
           <button onClick={() => {
             if (running) stop();
             else { setNotice(''); setResult(null); pitch.current = 300; setFrequency(300); startTime.current = performance.now(); setElapsed(0); setResetToken(t => t + 1); initAudio(); setRunning(true); }

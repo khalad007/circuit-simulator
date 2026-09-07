@@ -149,3 +149,29 @@ test('siren scope shows rising and falling pitch and releases a held button', as
   await expect(page.getByText('RELEASED', { exact: true })).toBeVisible();
   await expect.poll(async () => Number((await scope.textContent())?.match(/Pitch: (\d+)/)?.[1] ?? 0)).toBe(300);
 });
+
+test('clear canvas requires modal confirmation and cancel preserves progress', async ({ page }) => {
+  await page.getByRole('button', { name: 'Transistor Flip-Flop' }).click();
+  await page.getByRole('button', { name: 'Start Simulator', exact: true }).click();
+  const count = await page.locator('.react-flow__node').count();
+  await page.getByRole('button', { name: 'Clear Canvas', exact: true }).click();
+  const modal = page.getByRole('alertdialog', { name: 'Clear your canvas?' });
+  await expect(modal).toBeVisible();
+  await expect(modal).toContainText('Are you sure you want to clear your progress?');
+  await expect(modal.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator('.react-flow__node')).toHaveCount(count);
+  await expect(page.getByRole('button', { name: 'Stop Simulator', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Clear Canvas', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Clear Canvas', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator('.react-flow__node')).toHaveCount(count);
+  await page.getByRole('button', { name: 'Clear Canvas', exact: true }).click();
+  await modal.getByRole('button', { name: 'Yes, clear canvas' }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+  await expect(page.locator('.react-flow__edge')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Start Simulator', exact: true })).toBeVisible();
+});
