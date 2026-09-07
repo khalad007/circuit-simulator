@@ -69,8 +69,9 @@ export async function api<T>(route: string, payload?: unknown, signal?: AbortSig
   if (signal?.aborted) controller.abort();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, route === 'simulate' ? 10_000 : 45_000);
+  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8000';
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload ?? {}), signal: controller.signal });
+    const response = await fetch(`${BACKEND_URL}/api/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload ?? {}), signal: controller.signal });
     let data;
     try { data = await response.json(); }
     catch (error) {
