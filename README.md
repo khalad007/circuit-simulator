@@ -12,11 +12,17 @@ A browser-based electronics playground where you wire components, measure live s
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=googlegemini&logoColor=white)
 
-**Live demo: Coming soon** · [Run locally](#running-locally) · [Features](#features) · [Tech stack](#tech-stack)
-
-<!-- Replace “Live demo: Coming soon” above with the public deployment URL when available. -->
+[**Live demo**](https://circuit-simulator-frontend-engi.vercel.app/) · [Run locally](#running-locally) · [Deployment](#deployment) · [Features](#features) · [Tech stack](#tech-stack)
 
 </div>
+
+The frontend is hosted on **Vercel** and the FastAPI backend on **Render**.
+
+| Live service | URL |
+| --- | --- |
+| Circuit studio | [Open the live app](https://circuit-simulator-frontend-engi.vercel.app/) |
+| Backend | [Render API](https://circuit-simulator-backend.onrender.com/) |
+| Interactive API docs | [FastAPI docs](https://circuit-simulator-backend.onrender.com/docs) |
 
 ## Screenshots
 
@@ -176,6 +182,12 @@ npm run dev
 
 Keep both terminals running. For a quick first experiment, load **Emergency Siren Circuit**, click **Start Simulator**, and tap or hold **PUSH**.
 
+The frontend uses `NEXT_PUBLIC_BACKEND_URL`, falling back to `http://127.0.0.1:8000` when unset. To configure it explicitly, set this in `frontend/.env.local` and restart the frontend:
+
+```dotenv
+NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
+```
+
 ### 4. Build for production
 
 From `frontend/`:
@@ -211,6 +223,43 @@ From the repository root:
 
 The Playwright configuration uses headless **Microsoft Edge** and starts both development servers when needed. Its backend launch command currently targets the Windows virtual environment path; on macOS/Linux, adjust `frontend/playwright.config.ts` to use `../backend/venv/bin/python`. Browser checks exercise the real solver and stub AI responses where deterministic results are needed.
 
+## Deployment
+
+### Backend on Render
+
+Create a Python Web Service connected to this repository with these settings:
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `backend` |
+| Build command | `pip install -r requirements.txt` |
+| Start command | `uvicorn main:app --host 0.0.0.0 --port $PORT` |
+| Environment variable | `GEMINI_API_KEY` = your Google AI Studio API key |
+| Optional environment variable | `GEMINI_MODEL` = a model available to your Google project |
+
+Keep the Gemini key in Render's backend environment settings. Deploy the service after changing its configuration. See [Render's FastAPI deployment guide](https://render.com/docs/deploy-fastapi) for the service commands.
+
+The CORS `allow_origins` list in `backend/main.py` already includes `https://circuit-simulator-frontend-engi.vercel.app`. If you use another frontend domain, add its exact origin (scheme and hostname, without a trailing slash) and redeploy the backend. Preview domains must also be explicitly allowed if they need API access.
+
+### Frontend on Vercel
+
+Import this repository as a Next.js project with root directory **`frontend`**. In the project's environment variables, add the following for **Production**:
+
+```dotenv
+NEXT_PUBLIC_BACKEND_URL=https://circuit-simulator-backend.onrender.com
+```
+
+Use the backend base URL without a trailing slash or `/api` suffix; the client appends `/api/...` itself. Select Preview too if you intend to use it with the CORS configuration described above.
+
+**Redeploy the frontend after changing this value.** Next.js embeds `NEXT_PUBLIC_` values during the build, and existing deployments retain the previous URL. See the [Next.js environment variable guide](https://nextjs.org/docs/pages/guides/environment-variables) and [Vercel environment variable documentation](https://vercel.com/docs/environment-variables).
+
+### Verify the deployment
+
+1. Open the backend's [`/docs`](https://circuit-simulator-backend.onrender.com/docs) page to confirm FastAPI is responding. The backend has no root `/` route, so a `404` at its base URL is expected.
+2. Open the live frontend, load a prebuilt circuit, and start the simulator.
+3. Generate a circuit with the AI assistant to verify the Gemini configuration.
+4. If a request fails, inspect its URL and response in the browser's **Developer Tools → Network** panel. Requests should target `https://circuit-simulator-backend.onrender.com/api/...`.
+
 ## Notes
 
 ### Simulation scope
@@ -225,14 +274,14 @@ Flip-flop timing uses each side’s resistor and capacitor, approximately `0.693
 - JSON preserves layout, values, wires, viewport, and burnt LED state. Live measurement samples are not saved, and held pushbuttons are released on load.
 - AI challenges expire after **one hour** or a backend restart. Grading can vary, and overloaded solutions are capped at 40 points.
 
-### Troubleshooting and deployment
+### Troubleshooting
 
 | Issue | What to check |
 | --- | --- |
-| AI cannot generate a circuit | Check `backend/.env`, restart FastAPI, and inspect the displayed error for key, model, or quota problems. |
-| Simulation cannot connect | Confirm the backend is running on port 8000 and the frontend on port 3000. |
+| AI cannot generate a circuit | Check `GEMINI_API_KEY` and optional `GEMINI_MODEL` in Render's environment settings (or `backend/.env` locally), restart/redeploy the backend, and inspect the displayed error for key, model, or quota problems. |
+| Local simulation cannot connect | Confirm the backend is running on port 8000 and check `NEXT_PUBLIC_BACKEND_URL` in `frontend/.env.local`. |
 | Siren is silent | Start simulation before pressing PUSH, check system/tab volume, and interact with the page so the browser can enable audio. |
 | LED remains burnt | Correct its wiring, add current-limiting resistance, then click **Repair LEDs**. |
-| A deployed frontend cannot reach the API | The client currently targets `http://127.0.0.1:8000`. Before publishing, update the API URL in `frontend/lib/circuit.ts` and allowed CORS origins in `backend/main.py` for your HTTPS deployment. |
-
-The public demo URL has not been configured in this README yet. Screenshots and local setup instructions are included so you can explore the project immediately.
+| A deployed frontend cannot reach the API | Set Vercel's Production `NEXT_PUBLIC_BACKEND_URL` to `https://circuit-simulator-backend.onrender.com` and redeploy. Confirm the requested URL in the Network panel and the frontend origin in the backend's CORS list. |
+| The live app says to run Uvicorn on port 8000 | This is a generic network error message. Check the deployed backend URL, backend availability, and CORS. A previous deployment used the incorrect hostname `circuit-backend.onrender.com`; the correct hostname is `circuit-simulator-backend.onrender.com`. |
+| Updating the Vercel environment variable has no effect | Existing JavaScript retains the build-time value. Create a new frontend deployment, wait for it to finish, and refresh the page. |
