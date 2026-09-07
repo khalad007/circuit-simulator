@@ -11,6 +11,8 @@ export default function BatteryNode({ data, id }: { data: { voltage?: number; on
       <div className="flex items-center gap-1 my-1">
         <input
           type="number"
+          aria-label="Battery voltage"
+          min="0" max="10000000" step="any"
           value={voltage}
           onChange={(e) => data.onChangeVoltage?.(id, Number(e.target.value))}
           className="nodrag w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-bold font-mono"

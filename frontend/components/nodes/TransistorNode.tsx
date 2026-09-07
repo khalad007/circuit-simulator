@@ -1,6 +1,6 @@
 import { Handle, Position } from '@xyflow/react';
 
-export default function TransistorNode() {
+export default function TransistorNode({ data }: { data: { running?: boolean; isConducting?: boolean } }) {
   return (
     <div className="flex flex-col items-center border-2 border-gray-800 bg-sky-50 rounded-md p-3 w-36 shadow-md relative">
       <div className="text-[11px] font-bold text-gray-800 mb-1">NPN Transistor</div>
@@ -25,6 +25,7 @@ export default function TransistorNode() {
         <line x1="12" y1="14" x2="28" y2="6" />
         <line x1="12" y1="26" x2="28" y2="34" />
       </svg>
+      <span className="text-[9px] font-mono text-sky-700">{!data.running ? 'Switch model' : data.isConducting ? 'CONDUCTING' : 'OFF'}</span>
 
       {/* Emitter (Bottom) */}
       <div className="absolute -bottom-3 right-4 flex flex-col items-center">

@@ -24,6 +24,8 @@ export default function ResistorNode({ data, id }: { data: { resistance?: number
       <div className="flex items-center gap-1 mt-1">
         <input
           type="number"
+          aria-label="Resistance in ohms"
+          min="0" max="10000000" step="any"
           value={value}
           onChange={(e) => data.onChangeResistance?.(id, Number(e.target.value))}
           className="nodrag w-16 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"

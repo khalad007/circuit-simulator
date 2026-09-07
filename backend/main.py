@@ -6,18 +6,21 @@ from google import genai
 from google.genai import errors, types
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, StrictBool, field_validator
+from typing import List, Optional, Literal
 from simulation import simulate
 from uuid import uuid4
 from time import monotonic
+from threading import Lock
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 api_key = os.getenv("GEMINI_API_KEY", "").strip()
 gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
-client = genai.Client(api_key=api_key) if api_key else None
+client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=30000)) if api_key else None
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +48,14 @@ def generate_content(**kwargs):
 
 app = FastAPI()
 
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(_request, exc):
+    # Omit raw input, including non-finite numbers that cannot be serialized as JSON.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": list(error['loc']), "msg": error['msg'], "type": error['type']} for error in exc.errors()
+    ]})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -54,24 +65,31 @@ app.add_middleware(
 )
 
 class AIPromptPayload(BaseModel):
-    prompt: str
+    prompt: str = Field(min_length=1, max_length=4000)
+
+    @field_validator('prompt')
+    @classmethod
+    def meaningful_prompt(cls, value):
+        if not value.strip():
+            raise ValueError('Enter a circuit description.')
+        return value.strip()
 
 class NodeData(BaseModel):
-    voltage: Optional[float] = 9.0
-    resistance: Optional[float] = 330.0
-    capacitance: Optional[float] = 10.0
-    isOpen: Optional[bool] = True
-    isPressed: Optional[bool] = False
-    lightLevel: Optional[float] = 50.0
-    status: Optional[str] = "OFF"
+    voltage: Optional[float] = Field(default=9.0, ge=0, le=1e7, allow_inf_nan=False)
+    resistance: Optional[float] = Field(default=330.0, ge=0, le=1e7, allow_inf_nan=False)
+    capacitance: Optional[float] = Field(default=10.0, ge=0, le=1e7, allow_inf_nan=False)
+    isOpen: StrictBool = True
+    isPressed: StrictBool = False
+    lightLevel: Optional[float] = Field(default=50.0, ge=0, le=100, allow_inf_nan=False)
+    status: Literal['OFF', 'ON', 'BURNT', 'BLOWN'] = 'OFF'
 
 class NodeItem(BaseModel):
-    id: str
-    type: str
+    id: str = Field(min_length=1, max_length=128)
+    type: Literal['battery', 'resistor', 'led', 'switch', 'pushbutton', 'capacitor', 'transistor', 'speaker', 'ldr', 'voltmeter', 'ammeter', 'oscilloscope', 'junction']
     data: Optional[NodeData] = None
 
 class Edge(BaseModel):
-    id: str
+    id: str = Field(min_length=1, max_length=128)
     source: str
     target: str
     sourceHandle: Optional[str] = None
@@ -81,6 +99,19 @@ class CircuitPayload(BaseModel):
     nodes: List[NodeItem] = Field(max_length=100)
     edges: List[Edge] = Field(max_length=300)
     elapsed: float = Field(default=0, ge=0, allow_inf_nan=False)
+
+
+class Position(BaseModel):
+    x: float = Field(ge=-1e6, le=1e6, allow_inf_nan=False)
+    y: float = Field(ge=-1e6, le=1e6, allow_inf_nan=False)
+
+
+class GeneratedNode(NodeItem):
+    position: Position
+
+
+class GeneratedCircuit(CircuitPayload):
+    nodes: List[GeneratedNode] = Field(min_length=1, max_length=100)
 
 # ==================== CIRCUIT SIMULATOR ROUTE ====================
 @app.post("/api/simulate")
@@ -128,17 +159,24 @@ def generate_circuit_ai(payload: AIPromptPayload):
         circuit = json.loads(response.text or "")
         if not isinstance(circuit, dict) or not isinstance(circuit.get("nodes"), list) or not isinstance(circuit.get("edges"), list):
             raise ValueError("Missing circuit nodes or edges")
-        return circuit
+        valid = GeneratedCircuit.model_validate(circuit)
+        simulate(valid.model_dump())  # Validate terminal IDs and topology before the frontend sees it.
+        return valid.model_dump(include={'nodes', 'edges'}, exclude_none=True)
     except (ValueError, TypeError) as exc:
         raise HTTPException(502, "Gemini returned an invalid circuit. Try generating it again.") from exc
 
 # ==================== AI DOCTOR ROUTE ====================
 @app.post("/api/ai/analyze")
 def analyze_circuit_ai(payload: CircuitPayload):
+    try:
+        observations = simulate(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     prompt = f"""
         Analyze this electronic circuit schematic.
         Nodes: {payload.nodes}
         Edges: {payload.edges}
+        Simulation observations: {json.dumps(observations)}
         
         Explain in 2-3 short, clear sentences whether this circuit functions properly, has a short circuit, or missing connections. Keep it concise for a beginner student.
         """
@@ -167,6 +205,7 @@ class ChallengeSolution(CircuitPayload):
 
 # Short-lived classroom sessions. Restarting the backend expires active challenges.
 challenges = {}
+challenge_lock = Lock()
 
 
 def structured_ai(schema, prompt):
@@ -187,19 +226,21 @@ def create_challenge():
     Keep it solvable with these components. Do not require dynamic circuits or instruments.
     Return a short title, a clear task, and 3-5 measurable grading criteria. Do not give the solution.""")
     now = monotonic()
-    for key in list(challenges):
-        if now - challenges[key][0] > 3600:
-            challenges.pop(key, None)
-    if len(challenges) >= 100:
-        challenges.pop(next(iter(challenges)), None)
     challenge_id = str(uuid4())
-    challenges[challenge_id] = (now, challenge)
+    with challenge_lock:
+        for key in list(challenges):
+            if now - challenges[key][0] > 3600:
+                challenges.pop(key, None)
+        if len(challenges) >= 100:
+            challenges.pop(next(iter(challenges)), None)
+        challenges[challenge_id] = (now, challenge)
     return {"id": challenge_id, **challenge.model_dump()}
 
 
 @app.post('/api/ai/challenge/verify')
 def verify_challenge(payload: ChallengeSolution):
-    saved = challenges.get(payload.challenge_id)
+    with challenge_lock:
+        saved = challenges.get(payload.challenge_id)
     if saved is None or monotonic() - saved[0] > 3600:
         raise HTTPException(404, "This challenge expired. Generate a new challenge and try again.")
     circuit = payload.model_dump(exclude={'challenge_id'})

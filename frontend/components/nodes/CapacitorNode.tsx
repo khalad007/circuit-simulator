@@ -26,6 +26,8 @@ export default function CapacitorNode({
       <div className="flex items-center gap-1">
         <input
           type="number"
+          aria-label="Capacitance in microfarads"
+          min="0" max="10000000" step="any"
           value={capacitance}
           onChange={(e) => data.onChangeCapacitance?.(id, Number(e.target.value))}
           className="nodrag w-14 text-center text-xs border border-gray-400 rounded px-1 py-0.5 font-mono"
@@ -34,6 +36,7 @@ export default function CapacitorNode({
       </div>
 
       <Handle type="source" position={Position.Right} id="neg" className="!w-3 !h-3 !bg-gray-700 cursor-pointer" />
+      <span className="mt-1 text-[9px] text-cyan-800">DC: open · flip-flop: timing</span>
     </div>
   );
 }

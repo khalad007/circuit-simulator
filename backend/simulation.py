@@ -57,8 +57,12 @@ def simulate(circuit):
     def number(n, key, default):
         value = (n.get('data') or {}).get(key)
         value = default if value is None else value
-        if not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0 or value > 1e7:
+        if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value) or value < 0 or value > 1e7:
             raise ValueError(f"{key} must be a finite, nonnegative number (at most 10000000).")
+        if key == 'resistance' and 0 < value < 0.001:
+            raise ValueError("Resistance must be zero (a wire) or at least 0.001 ohms.")
+        if key == 'lightLevel' and value > 100:
+            raise ValueError("Light level must be between 0 and 100 percent.")
         return value
 
     zero_graph = defaultdict(list)
@@ -121,26 +125,39 @@ def simulate(circuit):
     battery = batteries[0]
     positive, ground = root((battery['id'], 'pos')), root((battery['id'], 'neg'))
     supply = number(battery, 'voltage', 9)
-    elapsed = max(0, circuit.get('elapsed', 0))
+    elapsed = circuit.get('elapsed', 0)
+    if not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < 0:
+        raise ValueError("Elapsed time must be a finite, nonnegative number.")
 
     # Require cross-coupled capacitor/base wiring, base bias, and grounded emitters.
     transistors = [n for n in nodes if n['type'] == 'transistor']
-    caps = [n for n in nodes if n['type'] == 'capacitor']
+    caps = [n for n in nodes if n['type'] == 'capacitor' and number(n, 'capacitance', 10) > 0]
     def has_component_between(kind, a, b):
-        return any(n['type'] == kind and {root((n['id'], 'pos')), root((n['id'], 'neg'))} == {a, b}
+        return a != b and any(n['type'] == kind and {root((n['id'], 'pos')), root((n['id'], 'neg'))} == {a, b}
                    for n in nodes if n['type'] == kind)
     flip_pair = []
+    half_periods = []
     if len(transistors) == 2 and len(caps) >= 2 and len(leds) >= 2:
         q1, q2 = transistors
         valid = all(root((q['id'], 'emitter')) == ground and has_component_between('resistor', positive, root((q['id'], 'base'))) for q in transistors)
         valid = valid and has_component_between('capacitor', root((q1['id'], 'collector')), root((q2['id'], 'base')))
         valid = valid and has_component_between('capacitor', root((q2['id'], 'collector')), root((q1['id'], 'base')))
+        # Both collector LED loads must be connected; unrelated LEDs do not make an oscillator.
+        valid = valid and all(any(root((led['id'], 'neg')) == root((q['id'], 'collector')) and
+            has_component_between('resistor', positive, root((led['id'], 'pos'))) for led in leds) for q in transistors)
         if valid:
             flip_pair = transistors
-    bias_resistors = [n for n in nodes if n['type'] == 'resistor' and flip_pair and
-        {root((n['id'], 'pos')), root((n['id'], 'neg'))} == {positive, root((flip_pair[0]['id'], 'base'))}]
-    half_period = max(0.1, min(5, 0.693 * number(bias_resistors[0], 'resistance', 100000) * number(caps[0], 'capacitance', 10) * 1e-6)) if flip_pair else 0.5
-    phase = int(elapsed / half_period) % 2
+            for on, off in [(q1, q2), (q2, q1)]:
+                bias = next(n for n in nodes if n['type'] == 'resistor' and
+                    {root((n['id'], 'pos')), root((n['id'], 'neg'))} == {positive, root((off['id'], 'base'))})
+                cap = next((n for n in caps if {root((n['id'], 'pos')), root((n['id'], 'neg'))} ==
+                    {root((on['id'], 'collector')), root((off['id'], 'base'))}), None)
+                if cap is None:
+                    flip_pair = []
+                    break
+                half_periods.append(max(0.1, min(5, 0.693 * number(bias, 'resistance', 100000) * number(cap, 'capacitance', 10) * 1e-6)))
+    period = sum(half_periods) if flip_pair else 1
+    phase = 0 if not flip_pair or elapsed % period < half_periods[0] else 1
 
     # Branch tuple: node id, terminal A, terminal B, resistance, forward drop.
     branches = []
@@ -161,13 +178,16 @@ def simulate(circuit):
         elif kind == 'transistor':
             if flip_pair and n['id'] == flip_pair[phase]['id']:
                 branch(n, 10, a='collector', b='emitter')
-            elif not flip_pair and root((n['id'], 'base')) == positive:
+            elif not flip_pair:
                 branch(n, 10, a='collector', b='emitter')
 
     nets = list({root(t) for t in terminals} - {positive, ground})
     index = {net: i for i, net in enumerate(nets)}
     fixed = {ground: 0.0, positive: supply}
     active = {n['id'] for n in leds if result['led_states'][n['id']] != 'BURNT'}
+    conducting_transistors = {flip_pair[phase]['id']} if flip_pair else set()
+    def enabled(node_id, drop):
+        return (not drop or node_id in active) and (by_id[node_id]['type'] != 'transistor' or node_id in conducting_transistors)
     volts = dict(fixed)
     for _ in range(24):
         matrix = [[0.0] * len(nets) for _ in nets]
@@ -176,7 +196,7 @@ def simulate(circuit):
         for i in range(len(nets)):
             matrix[i][i] = 1e-10
         for node_id, a, b, resistance, drop in branches:
-            g = 1 / resistance if not drop or node_id in active else 1e-10
+            g = 1 / resistance if enabled(node_id, drop) else 1e-10
             emf = drop if node_id in active else 0
             for here, other, sign in [(a, b, 1), (b, a, -1)]:
                 if here in index:
@@ -188,12 +208,18 @@ def simulate(circuit):
                     else:
                         rhs[i] += fixed[other] * g
         volts = {**fixed, **dict(zip(nets, solve_linear(matrix, rhs)))}
+        if not all(math.isfinite(v) for v in volts.values()):
+            raise ValueError("Circuit values exceed the solver's numerical range. Check component values.")
         next_active = {node_id for node_id, a, b, _, drop in branches if drop and volts[a] - volts[b] >= drop - 1e-7}
-        if next_active == active:
+        next_transistors = conducting_transistors if flip_pair else {q['id'] for q in transistors
+            if volts[root((q['id'], 'base'))] - volts[root((q['id'], 'emitter'))] >= 0.7 and
+            volts[root((q['id'], 'collector'))] >= volts[root((q['id'], 'emitter'))] - 1e-7}
+        if next_active == active and next_transistors == conducting_transistors:
             break
         active = next_active
+        conducting_transistors = next_transistors
     else:
-        raise ValueError("This diode network did not converge. Simplify the circuit and try again.")
+        raise ValueError("This nonlinear circuit did not converge. Simplify the circuit and try again.")
 
     conductive = defaultdict(list)
     unsafe = defaultdict(list)
@@ -205,14 +231,15 @@ def simulate(circuit):
     conductive[ground].append((positive, None))
     currents = {}
     for node_id, a, b, resistance, drop in branches:
-        current = (volts[a] - volts[b] - drop) / resistance if not drop or node_id in active else 0
+        current = (volts[a] - volts[b] - drop) / resistance if enabled(node_id, drop) else 0
         currents[node_id] = current
-        if not drop or node_id in active:
+        if enabled(node_id, drop):
             conductive[a].append((b, None))
             conductive[b].append((a, None))
-            if by_id[node_id]['type'] not in ('resistor', 'ldr', 'led'):
-                unsafe[a].append((b, None))
-                unsafe[b].append((a, None))
+            if by_id[node_id]['type'] not in ('resistor', 'ldr'):
+                unsafe[a].append((b, node_id))
+                if not drop:
+                    unsafe[b].append((a, node_id))
     powered = {ground}
     queue = deque([ground])
     while queue:
@@ -221,9 +248,9 @@ def simulate(circuit):
                 powered.add(other)
                 queue.append(other)
     for n in nodes:
-        if n['type'] in ('transistor', 'junction'):
+        if n['type'] == 'junction':
             continue
-        a, b = root((n['id'], 'pos')), root((n['id'], 'neg'))
+        a, b = (root((n['id'], 'collector')), root((n['id'], 'emitter'))) if n['type'] == 'transistor' else (root((n['id'], 'pos')), root((n['id'], 'neg')))
         voltage = volts[a] - volts[b]
         current = currents.get(n['id'], 0)
         connected = a in powered and b in powered
@@ -251,6 +278,6 @@ def simulate(circuit):
             a, b = root((n['id'], 'pos')), root((n['id'], 'neg'))
             if any({a, b} == {root((s['id'], 'pos')), root((s['id'], 'neg'))} for s in nodes if s['type'] == 'speaker'):
                 instrument.update(signal='siren')
-            elif result['is_flipflop']:
-                instrument.update(signal='voltage', frequency=1 / (2 * half_period))
+            elif result['is_flipflop'] and a != b and any(root((q['id'], 'collector')) in (a, b) for q in flip_pair):
+                instrument.update(signal='voltage', frequency=1 / period)
     return result

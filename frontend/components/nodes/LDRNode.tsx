@@ -13,6 +13,7 @@ export default function LDRNode({ data, id }: { data: { lightLevel?: number; onC
         <span className="text-[10px]">☀️</span>
         <input
           type="range"
+          aria-label="Light level"
           min="0"
           max="100"
           value={light}

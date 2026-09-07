@@ -17,10 +17,10 @@ class AIRoutesTest(unittest.TestCase):
         self.addCleanup(self.client_patch.stop)
 
     def test_generation(self):
-        self.provider.models.generate_content.return_value = SimpleNamespace(text='{"nodes": [], "edges": []}')
+        self.provider.models.generate_content.return_value = SimpleNamespace(text='{"nodes": [{"id":"b","type":"battery","position":{"x":100,"y":100},"data":{}}], "edges": []}')
         response = self.http.post('/api/ai/generate', json={"prompt": "LED circuit"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"nodes": [], "edges": []})
+        self.assertEqual(response.json()['nodes'][0]['id'], 'b')
         self.assertEqual(self.provider.models.generate_content.call_args.kwargs['model'], main.gemini_model)
 
     def test_missing_key_does_not_break_simulation(self):
@@ -46,7 +46,7 @@ class AIRoutesTest(unittest.TestCase):
                     self.assertNotIn('secret-value', response.text)
 
     def test_invalid_generated_json(self):
-        for text in [None, 'not json', '{}', '[]']:
+        for text in [None, 'not json', '{}', '[]', '{"nodes":[],"edges":[]}', '{"nodes":[{"id":"x","type":"unknown"}],"edges":[]}']:
             with self.subTest(text=text):
                 self.provider.models.generate_content.return_value = SimpleNamespace(text=text)
                 self.assertEqual(self.http.post('/api/ai/generate', json={"prompt": "LED"}).status_code, 502)

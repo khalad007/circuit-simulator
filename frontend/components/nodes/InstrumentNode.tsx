@@ -55,7 +55,7 @@ export function OscilloscopeNode({ data }: { data: InstrumentData }) {
       ctx.strokeStyle = '#34d399'; ctx.lineWidth = 2; ctx.beginPath();
       if (d.reading?.signal === 'siren' && d.running && d.reading.connected) {
         for (let x = 0; x < w; x++) {
-          const amplitude = (d.frequency ?? 0) > 300 || (d.reading.voltage ?? 0) > 0 ? 40 : 0;
+          const amplitude = Math.abs(d.reading.voltage ?? 0) > 1e-6 ? 40 : 0;
           const y = h / 2 - amplitude * Math.sin(2 * Math.PI * (d.frequency ?? 300) * (x / w * 0.02 + now / 1000));
           if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }

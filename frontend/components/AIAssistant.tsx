@@ -1,50 +1,50 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Node, Edge } from '@xyflow/react';
+import { api } from '@/lib/circuit';
 
 export default function AIAssistant({
   onGenerateCircuit,
   onAnalyzeCircuit,
 }: {
   onGenerateCircuit: (nodes: Node[], edges: Edge[]) => void;
-  onAnalyzeCircuit: () => Promise<string>;
+  onAnalyzeCircuit: (signal?: AbortSignal) => Promise<string>;
 }) {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState('');
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => () => pending.current?.abort(), []);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setLoading(true);
     setAnalysis('');
+    pending.current?.abort();
+    const request = new AbortController(); pending.current = request;
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/ai/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.detail === 'string' ? data.detail : `Circuit generation failed (${res.status}).`);
-      }
+      const data = await api<{ nodes: Node[]; edges: Edge[] }>('ai/generate', { prompt }, request.signal);
+      if (request.signal.aborted) return;
       if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
         throw new Error('The server returned an invalid circuit. Try again.');
       }
       onGenerateCircuit(data.nodes, data.edges);
     } catch (err) {
-      console.error(err);
+      if (request.signal.aborted) return;
       setAnalysis(`⚠️ ${err instanceof TypeError ? 'Cannot connect to the backend. Make sure uvicorn is running on port 8000.' : err instanceof Error ? err.message : 'Could not generate circuit. Try again.'}`);
     } finally {
-      setLoading(false);
+      if (!request.signal.aborted) setLoading(false);
     }
   };
 
   const handleAnalyze = async () => {
     setLoading(true);
-    try { setAnalysis(await onAnalyzeCircuit()); }
-    catch (error) { setAnalysis(error instanceof Error ? error.message : 'Could not analyze circuit.'); }
-    finally { setLoading(false); }
+    pending.current?.abort();
+    const request = new AbortController(); pending.current = request;
+    try { const feedback = await onAnalyzeCircuit(request.signal); if (!request.signal.aborted) setAnalysis(feedback); }
+    catch (error) { if (!request.signal.aborted) setAnalysis(error instanceof Error ? error.message : 'Could not analyze circuit.'); }
+    finally { if (!request.signal.aborted) setLoading(false); }
   };
 
   return (

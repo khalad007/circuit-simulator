@@ -4,7 +4,7 @@ import { useCallback, useState, useRef, useEffect, useMemo } from 'react';
 import {
   ReactFlow, Background, Controls, applyNodeChanges, applyEdgeChanges, addEdge,
   type Node, type Edge, type NodeChange, type EdgeChange, type Connection,
-  useReactFlow, ReactFlowProvider, ConnectionMode, getNodesBounds, getViewportForBounds,
+  useReactFlow, ReactFlowProvider, ConnectionMode, getViewportForBounds,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import BatteryNode from '@/components/nodes/BatteryNode';
@@ -44,11 +44,17 @@ function CircuitFlow() {
   const [elapsed, setElapsed] = useState(0);
   const [frequency, setFrequency] = useState(300);
   const [resetToken, setResetToken] = useState(0);
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
+  const canvasVersion = useRef(0);
   const startTime = useRef(0);
   const audio = useRef<{ ctx: AudioContext; oscillator: OscillatorNode; gain: GainNode } | null>(null);
   const presses = useRef(new Map<string, { released: boolean; acknowledgedAt: number | null; timer?: ReturnType<typeof setTimeout> }>());
   const pitch = useRef(300);
   const change = useCallback((id: string, key: string, value: unknown) => {
+    if (typeof value === 'number' && (!Number.isFinite(value) || value < 0 || value > 1e7 || (key === 'lightLevel' && value > 100) || (key === 'resistance' && value > 0 && value < 0.001))) {
+      setNotice(key === 'resistance' ? 'Use 0 Ω for a wire, or a resistance from 0.001 to 10000000 Ω.' : 'Enter a finite, nonnegative component value within its allowed range.');
+      return;
+    }
     setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n));
   }, []);
   const initAudio = useCallback(() => {
@@ -161,7 +167,8 @@ function CircuitFlow() {
   const displayNodes = nodes.map(n => ({ ...n, data: {
     ...n.data, ...handlers,
     status: n.data.status === 'BURNT' ? 'BURNT' : running ? result?.led_states[n.id] ?? 'OFF' : 'OFF',
-    isPlaying: running && !!result?.speaker_active && (result.measurements[n.id]?.current_ma ?? 0) > 0,
+    isPlaying: running && !!result?.speaker_active && Math.abs(result.measurements[n.id]?.current_ma ?? 0) > 0,
+    isConducting: running && Math.abs(result?.measurements[n.id]?.current_ma ?? 0) > 0.01,
     reading: result?.instruments[n.id], running, elapsed, frequency, resetToken,
   } }));
   const displayEdges = edges.map(e => ({ ...e, animated: running && !result?.short_circuit,
@@ -170,6 +177,7 @@ function CircuitFlow() {
 
   const replaceCircuit = (value: unknown) => {
     const next = parseCircuit(value);
+    canvasVersion.current += 1; setCanvasEpoch(canvasVersion.current);
     stop(); setResult(null); setNotice(''); setNodes(next.nodes); setEdges(next.edges); setResetToken(t => t + 1); setElapsed(0);
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (next.viewport) void flow.setViewport(next.viewport);
@@ -182,13 +190,18 @@ function CircuitFlow() {
     if (removed.size) setEdges(current => current.filter(e => !removed.has(e.source) && !removed.has(e.target)));
   }, []);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(current => applyEdgeChanges(changes, current)), []);
-  const onConnect = useCallback((connection: Connection) => setEdges(current => addEdge(connection, current)), []);
+  const onConnect = useCallback((connection: Connection) => {
+    if (edges.length >= 300) { setNotice('The canvas supports at most 300 wires.'); return; }
+    setEdges(current => addEdge(connection, current));
+  }, [edges.length]);
   const addComponent = (type: string, position = flow.screenToFlowPosition({ x: (wrapper.current?.getBoundingClientRect().left ?? 240) + 200, y: (wrapper.current?.getBoundingClientRect().top ?? 250) + 130 })) => {
     if (!componentTypes.includes(type)) return;
+    if (nodes.length >= 100) { setNotice('The canvas supports at most 100 components.'); return; }
     setNodes(current => current.concat({ id: crypto.randomUUID(), type, position, data: { ...defaults } }));
   };
   const splitWire = (event: React.MouseEvent, edge: Edge) => {
     const ammeter = nodes.find(n => n.selected && n.type === 'ammeter' && !edges.some(e => e.source === n.id || e.target === n.id));
+    if (edges.length >= 300 || (!ammeter && nodes.length >= 100)) { setNotice('Cannot split this wire: the canvas limit is 100 components and 300 wires.'); return; }
     const id = ammeter?.id ?? crypto.randomUUID();
     if (!ammeter) addJunction();
     function addJunction() { setNodes(current => current.concat({ id, type: 'junction', position: flow.screenToFlowPosition({ x: event.clientX, y: event.clientY }), data: {} })); }
@@ -205,9 +218,12 @@ function CircuitFlow() {
   };
   const load = async (file?: File) => {
     if (!file) return;
+    const version = canvasVersion.current;
     try {
       if (file.size > 2_000_000) throw new Error('Choose a circuit JSON smaller than 2 MB.');
-      replaceCircuit(JSON.parse(await file.text())); setNotice('Circuit loaded. Click Start Simulator when ready.');
+      const value = JSON.parse(await file.text());
+      if (version !== canvasVersion.current) return;
+      replaceCircuit(value); setNotice('Circuit loaded. Click Start Simulator when ready.');
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load circuit.'); }
     finally { if (fileInput.current) fileInput.current.value = ''; }
   };
@@ -217,7 +233,7 @@ function CircuitFlow() {
       const viewport = wrapper.current?.querySelector<HTMLElement>('.react-flow__viewport');
       if (!viewport || !nodes.length) throw new Error('Add components before exporting.');
       const { toPng } = await import('html-to-image');
-      const bounds = getNodesBounds(flow.getNodes());
+      const bounds = flow.getNodesBounds(flow.getNodes());
       // Include handles and labels outside component boxes, and fit off-screen nodes.
       const padded = { x: bounds.x - 40, y: bounds.y - 40, width: bounds.width + 80, height: bounds.height + 80 };
       const width = 1600, height = Math.min(2000, Math.max(900, Math.round(width * padded.height / Math.max(padded.width, 1))));
@@ -244,6 +260,7 @@ function CircuitFlow() {
           <button onClick={() => { stop(); setEdges([]); setResult(null); }} className="studio-button">Clear Wires</button>
           <button onClick={() => { stop(); setNodes(current => current.map(n => n.type === 'led' ? { ...n, data: { ...n.data, status: 'OFF' } } : n)); setResult(null); setNotice('LEDs repaired. Fix the wiring before restarting.'); }} className="studio-button">Repair LEDs</button>
           <ClearCanvasButton onConfirm={() => {
+            canvasVersion.current += 1; setCanvasEpoch(canvasVersion.current);
             stop(); setNodes([]); setEdges([]); setResult(null); setNotice('');
             setElapsed(0); pitch.current = 300; setFrequency(300); setResetToken(t => t + 1);
             void flow.setViewport({ x: 0, y: 0, zoom: 1 });
@@ -255,8 +272,8 @@ function CircuitFlow() {
         </div>
       </header>
       <div className="max-h-[38vh] shrink-0 overflow-y-auto">
-        <AIAssistant onGenerateCircuit={(newNodes, newEdges) => replaceCircuit({ nodes: newNodes, edges: newEdges })} onAnalyzeCircuit={async () => {
-          try { return (await api<{ analysis: string }>('ai/analyze', circuitPayload(nodes, edges))).analysis; }
+        <AIAssistant key={canvasEpoch} onGenerateCircuit={(newNodes, newEdges) => replaceCircuit({ nodes: newNodes, edges: newEdges })} onAnalyzeCircuit={async signal => {
+          try { return (await api<{ analysis: string }>('ai/analyze', circuitPayload(nodes, edges), signal)).analysis; }
           catch (error) { return error instanceof Error ? error.message : 'Could not analyze circuit.'; }
         }} />
         <ChallengePanel nodes={nodes} edges={edges} />
