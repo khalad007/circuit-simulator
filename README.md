@@ -1,88 +1,238 @@
-# Circuit Engineering Studio
+﻿<div align="center">
 
-Run the backend from `backend` with `uvicorn main:app --reload`, and the frontend
-from `frontend` with `npm install` and `npm run dev`. Open `http://localhost:3000`.
-AI features use `GEMINI_API_KEY` in `backend/.env`; `GEMINI_MODEL` optionally
-overrides the default model. Restart the backend after changing environment settings.
+# ⚡ Circuit Engineering Studio
 
-## Experiment and measure
+**Build circuits. See the physics. Learn by experimenting.**
 
-- Click a component in the sidebar or drag it onto the canvas. Connect terminals
-  in either direction. Select a component or wire and press Delete to remove it.
-- Start Simulator calculates terminal voltages and branch currents. An LED above
-  3.3 V without series resistance explodes and stays **BURNT**, including across
-  stop/start and JSON saves. Correct its wiring, then use **Repair LEDs**.
-- A zero-resistance path between battery terminals highlights the fault path red,
-  reports high current, and stops simulation. An ammeter directly across a battery
-  also creates a short.
-- Connect voltmeter and oscilloscope probes **across** two terminals. Double-click
-  a wire to create a probe junction. Connect an ammeter **in series**, or select an
-  unconnected ammeter and double-click the wire where it should be inserted.
-- The siren and flip-flop templates include scopes. Start the simulator, then tap
-  PUSH for a brief tone or hold it to raise pitch continuously. Short taps stay
-  pressed until the backend evaluates them, then sound for at least 180 ms.
-  Releasing the button lowers the displayed pitch envelope. The speaker
-  mutes when its power path opens. The flip-flop scope samples alternating collector
-  voltage; changing its base resistance or capacitance changes the modeled period.
-- The LDR template is a light-controlled LED: dark = off, bright = on. Its series
-  330-ohm resistor limits current at maximum light. The display treats current
-  below 0.5 mA as off; measurement tools still show the calculated small current.
+A browser-based electronics playground where you wire components, measure live signals, hear a siren, and learn with Gemini-powered circuit generation and challenges.
 
-## Save, share, and learn
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs)
+![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=googlegemini&logoColor=white)
 
-- **Save JSON** downloads component positions, values, damage state, wires, and
-  viewport. **Load JSON** validates the entire file before replacing the canvas.
-  Files support up to 100 components, 300 wires, and 2 MB. Runtime callbacks and
-  measurement samples are excluded; held pushbuttons are released on load.
-- **Export PNG** exports all components, including those outside the visible canvas,
-  on white without editor controls. It uses the version of `html-to-image`
-  recommended by the [React Flow export example](https://reactflow.dev/examples/misc/download-image).
-- **Generate Challenge** asks Gemini for a beginner wiring task. Build it and click
-  **Verify Solution** for a score, feedback, and hints. Grading uses the saved task,
-  terminal-level graph, and simulation observations. Overloaded solutions cannot
-  score above 40. Scores are marked stale when the circuit changes. Challenges
-  expire after one hour or a backend restart; generating one keeps the canvas intact.
+**Live demo: Coming soon** · [Run locally](#running-locally) · [Features](#features) · [Tech stack](#tech-stack)
 
-## Modeling limits
+<!-- Replace “Live demo: Coming soon” above with the public deployment URL when available. -->
 
-This is an educational simulator, not SPICE. It supports one ideal DC battery,
-resistors, ideal switches, and a piecewise LED model (2 V forward drop plus 10 ohms).
-Voltmeters/scopes have infinite input impedance; ammeters use a 0.001-ohm shunt.
-Floating probes show no reading. Capacitors are open in DC steady state. The
-transistor, siren and cross-coupled flip-flop use simplified behavioral models;
-oscilloscope voltage history covers 4 seconds, and siren waves illustrate a 20 ms
-window of modeled audio (flat when the speaker is unpowered). Each flip-flop
-half-period uses its own cross-coupled capacitor and base resistor: approximately
-0.693 × R × C, bounded to 0.1–5 seconds for visualization. Unrelated capacitors do
-not affect timing. See the [astable circuit explanation](https://www.electronics-tutorials.ws/waveforms/astable.html).
-The standalone NPN is a simplified voltage-controlled switch: it closes a 10-ohm
-collector/emitter path when the calculated base/emitter voltage reaches 0.7 V.
-Resistor-fed bases work, but base current, gain, saturation and transistor breakdown
-are not modeled. Capacitor transients are not solved. AI grades can vary between attempts.
+</div>
 
-Resistance values must be zero (an ideal wire) or at least 0.001 ohms; numerical
-inputs must be finite and nonnegative. The canvas and API enforce the same component
-and wire limits. AI requests time out instead of leaving controls busy indefinitely.
-Clearing or replacing a circuit cancels pending AI generation so late responses
-cannot overwrite the new canvas.
+## Screenshots
 
-## Checks
+### The circuit workspace
+
+A running transistor flip-flop with alternating LEDs and an oscilloscope, alongside the component library and AI controls.
+
+![Circuit workspace showing the running transistor flip-flop](docs/screenshots/flip-flop.png)
+
+<table>
+  <tr>
+    <th>Interactive siren</th>
+    <th>Light-controlled LED</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/siren.png" alt="Running emergency siren with its push button held and waveform visible" /></td>
+    <td><img src="docs/screenshots/light-sensor.png" alt="LDR light sensor at full brightness with its LED illuminated" /></td>
+  </tr>
+  <tr>
+    <td>Hold PUSH to raise the modeled pitch and hear the speaker.</td>
+    <td>Adjust ambient light and observe the LED response.</td>
+  </tr>
+</table>
+
+*Screenshots captured from the local application using its actual circuit solver.*
+
+## Features
+
+| Feature | What you can do |
+| --- | --- |
+| **Visual circuit builder** | Click or drag components onto a zoomable canvas, connect terminals, and edit component values. |
+| **Live simulation** | Calculate terminal voltages and branch currents, toggle switches, press buttons, and change light levels. |
+| **Overload feedback** | See unprotected LEDs explode and stay **BURNT**. Battery short circuits highlight faulty wires in red and stop simulation. |
+| **Measurement tools** | Connect voltmeters, series ammeters, and oscilloscopes to inspect readings and waveforms. |
+| **Prebuilt circuits** | Start with an emergency siren, transistor flip-flop, or LDR light sensor. |
+| **Audible siren** | Tap PUSH for a short tone or hold it to increase the pitch using browser audio. |
+| **AI circuit generation** | Describe a circuit in plain language and let Gemini generate an editable layout. |
+| **AI Doctor** | Ask for feedback on the current circuit, informed by its wiring and simulation results. |
+| **AI challenge mode** | Generate a wiring task, build your solution, and receive a score, feedback, and hints. |
+| **Save and share** | Download and restore circuit JSON, or export the complete schematic as a clean PNG—even components outside the viewport. |
+| **Clear with confirmation** | Reset the canvas through a confirmation modal to avoid accidentally losing progress. |
+
+**Available components:** battery, resistor, LED, toggle switch, push button, capacitor, NPN transistor, speaker, LDR, voltmeter, ammeter, oscilloscope, and wire junction.
+
+## Tech stack
+
+| Layer | Technologies | Purpose |
+| --- | --- | --- |
+| **Frontend** | Next.js 16, React 19, TypeScript | App structure, interactive UI, and typed circuit data. |
+| **Canvas** | React Flow (`@xyflow/react`) | Draggable components, terminal connections, pan, and zoom. |
+| **Styling and UI** | Tailwind CSS 4, Base UI, Lucide React | Styling, accessible dialogs, and icons. |
+| **Backend** | Python, FastAPI, Uvicorn, Pydantic | HTTP endpoints, validated requests, and simulation orchestration. |
+| **Simulation** | Custom Python nodal DC solver | Voltages, branch currents, overload detection, and simplified switching models. |
+| **AI API** | Google Gemini through `google-genai` | Circuit generation, analysis, challenge creation, and grading. |
+| **Browser tools** | Web Audio API, Canvas API, `html-to-image` | Siren audio, waveform drawing, and PNG export. |
+| **Development and checks** | npm, ESLint, TypeScript, Playwright, Python `unittest` | Dependency management, static checks, and regression tests. |
+| **Configuration** | `python-dotenv` | Backend environment settings and API credentials. |
+
+No database is required. Circuit files are saved as local JSON downloads; active AI challenges are stored in backend memory.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Build and wire a circuit] --> B[React Flow graph]
+    B --> C[FastAPI validation]
+    C --> D[Python circuit solver]
+    D --> E[Readings, LED states and alerts]
+    E --> F[Canvas, scopes and audio]
+    B --> G[AI endpoints]
+    G <--> H[Google Gemini]
+    G --> I[Generated circuits, feedback and challenges]
+```
+
+1. **Build:** choose a template or place components and connect their terminals. Select a component or wire and press **Delete** to remove it.
+2. **Simulate:** click **Start Simulator**. The frontend sends the electrical graph to the backend repeatedly while running; the solver returns measurements and component states.
+3. **Experiment:** change resistance, battery voltage, switches, or light levels and watch the circuit respond. Use **Repair LEDs** after correcting an overload.
+4. **Measure:** wire voltmeters and scopes across two terminals. Put an ammeter in series. Double-click a wire to create a junction, or select an unconnected ammeter before double-clicking to insert it into that wire.
+5. **Learn and share:** request AI guidance, verify a challenge solution, save the layout as JSON, or export a schematic PNG.
+
+The Gemini key stays on the backend. Manual building, simulation, measurement, and exports work without AI credentials.
+
+## Running locally
+
+### Prerequisites
+
+- **Node.js 20.9 or newer** and npm.
+- **Python 3.11** for the documented setup.
+- **Git** to clone the repository.
+- A **Gemini API key** if you want to use the AI features.
+- A modern browser with Web Audio support.
+
+### 1. Clone the project
+
+```bash
+git clone https://github.com/khalad007/circuit-simulator.git
+cd circuit-simulator
+```
+
+### 2. Set up the backend
+
+**Windows PowerShell** — from the repository root:
+
+```powershell
+cd backend
+py -3.11 -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+**macOS / Linux** — from the repository root:
+
+```bash
+cd backend
+python3 -m venv venv
+./venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+For AI features, edit `backend/.env` and replace the placeholder:
+
+```dotenv
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.5-flash
+```
+
+`GEMINI_MODEL` is optional and defaults to the value above. Choose a model available to your Google project if the default is unavailable. If you already have a `.env`, edit it instead of copying over it. Keep this file private and restart the backend after changing it.
+
+Start the backend in this terminal:
+
+```powershell
+# Windows PowerShell, inside backend/
+.\venv\Scripts\python.exe -m uvicorn main:app --reload
+```
+
+```bash
+# macOS / Linux, inside backend/
+./venv/bin/python -m uvicorn main:app --reload
+```
+
+With the virtual environment activated, the equivalent command is `uvicorn main:app --reload`.
+
+### 3. Start the frontend
+
+Open a **second terminal** in the repository root:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+| Local service | URL |
+| --- | --- |
+| Circuit studio | [http://localhost:3000](http://localhost:3000) |
+| Backend API docs | [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) |
+
+Keep both terminals running. For a quick first experiment, load **Emergency Siren Circuit**, click **Start Simulator**, and tap or hold **PUSH**.
+
+### 4. Build for production
+
+From `frontend/`:
+
+```bash
+npm run build
+npm start
+```
+
+The frontend production server still needs the FastAPI backend. For a local backend without development reload, run the same Uvicorn command without `--reload`.
+
+### Development checks
+
+From `frontend/`:
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm run test:e2e
+```
 
 From the repository root:
 
 ```powershell
-& backend/venv/Scripts/python.exe -B -m unittest discover -s backend -p 'test_*.py'
+# Windows PowerShell
+.\backend\venv\Scripts\python.exe -B -m unittest discover -s backend -p 'test_*.py'
 ```
 
-From `frontend`:
-
-```powershell
-npm run lint
-npx tsc --noEmit
-npm run build
-npm run test:e2e
+```bash
+# macOS / Linux
+./backend/venv/bin/python -B -m unittest discover -s backend -p 'test_*.py'
 ```
 
-Browser tests use headless Microsoft Edge and start local servers when needed.
-They use the real circuit solver and stub Gemini only for deterministic challenge
-UI checks. Browser traces and PNG examples are written to ignored `test-results/`.
+The Playwright configuration uses headless **Microsoft Edge** and starts both development servers when needed. Its backend launch command currently targets the Windows virtual environment path; on macOS/Linux, adjust `frontend/playwright.config.ts` to use `../backend/venv/bin/python`. Browser checks exercise the real solver and stub AI responses where deterministic results are needed.
+
+## Notes
+
+### Simulation scope
+
+This is an educational simulator with **one ideal DC battery**, not a SPICE replacement. LEDs use a simplified 2 V forward drop plus 10 Ω model; unprotected LEDs above 3.3 V can burn out. Capacitors are open in DC steady state. NPN transistors use a simplified voltage-controlled switch, while the siren and cross-coupled flip-flop use behavioral models. Full capacitor transients, transistor gain, base current, saturation, and breakdown are not modeled.
+
+Flip-flop timing uses each side’s resistor and capacitor, approximately `0.693 × R × C` per half-cycle, bounded to 0.1–5 seconds for visualization. Voltmeters and scopes have infinite input impedance; ammeters use a 0.001 Ω shunt. Floating probes show no reading. The LDR template shows its LED as off below 0.5 mA, even when a meter detects small leakage current.
+
+### Files and AI challenges
+
+- A circuit supports up to **100 components and 300 wires**; JSON imports are limited to **2 MB**.
+- JSON preserves layout, values, wires, viewport, and burnt LED state. Live measurement samples are not saved, and held pushbuttons are released on load.
+- AI challenges expire after **one hour** or a backend restart. Grading can vary, and overloaded solutions are capped at 40 points.
+
+### Troubleshooting and deployment
+
+| Issue | What to check |
+| --- | --- |
+| AI cannot generate a circuit | Check `backend/.env`, restart FastAPI, and inspect the displayed error for key, model, or quota problems. |
+| Simulation cannot connect | Confirm the backend is running on port 8000 and the frontend on port 3000. |
+| Siren is silent | Start simulation before pressing PUSH, check system/tab volume, and interact with the page so the browser can enable audio. |
+| LED remains burnt | Correct its wiring, add current-limiting resistance, then click **Repair LEDs**. |
+| A deployed frontend cannot reach the API | The client currently targets `http://127.0.0.1:8000`. Before publishing, update the API URL in `frontend/lib/circuit.ts` and allowed CORS origins in `backend/main.py` for your HTTPS deployment. |
+
+The public demo URL has not been configured in this README yet. Screenshots and local setup instructions are included so you can explore the project immediately.
