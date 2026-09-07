@@ -236,7 +236,8 @@ def simulate(circuit):
                 result['led_states'][n['id']] = 'BURNT'
                 result['alerts'].append(f"LED {n['id']} burnt: over 3.3 V without a series resistor. Add resistance and repair the LED.")
             else:
-                result['led_states'][n['id']] = 'ON' if current > 1e-5 else 'OFF'
+                # Ignore sub-milliamp leakage for the classroom LED's visible state.
+                result['led_states'][n['id']] = 'ON' if current >= 0.0005 else 'OFF'
         if n['type'] in ('voltmeter', 'ammeter', 'oscilloscope'):
             result['instruments'][n['id']] = dict(voltage=round(voltage, 5) if connected else None,
                 current_ma=round(current * 1000, 5) if connected else None, connected=connected, signal='voltage', frequency=0)

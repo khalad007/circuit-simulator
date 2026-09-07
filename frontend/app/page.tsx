@@ -45,28 +45,14 @@ function CircuitFlow() {
   const [resetToken, setResetToken] = useState(0);
   const startTime = useRef(0);
   const audio = useRef<{ ctx: AudioContext; oscillator: OscillatorNode; gain: GainNode } | null>(null);
+  const presses = useRef(new Map<string, { released: boolean; acknowledgedAt: number | null; timer?: ReturnType<typeof setTimeout> }>());
   const pitch = useRef(300);
   const change = useCallback((id: string, key: string, value: unknown) => {
     setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, [key]: value } } : n));
   }, []);
-  const handlers = useMemo(() => ({
-    onChangeVoltage: (id: string, value: number) => change(id, 'voltage', value),
-    onChangeResistance: (id: string, value: number) => change(id, 'resistance', value),
-    onChangeCapacitance: (id: string, value: number) => change(id, 'capacitance', value),
-    onChangeLight: (id: string, value: number) => change(id, 'lightLevel', value),
-    onPushPress: (id: string, value: boolean) => change(id, 'isPressed', value),
-    onToggleSwitch: (id: string) => setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, isOpen: !n.data.isOpen } } : n)),
-  }), [change]);
-
-  const mute = useCallback(() => {
-    if (audio.current) audio.current.gain.gain.setValueAtTime(0, audio.current.ctx.currentTime);
-  }, []);
-  const stop = useCallback(() => { setRunning(false); mute(); }, [mute]);
-  useEffect(() => () => { audio.current?.oscillator.stop(); void audio.current?.ctx.close(); }, []);
-
-  const initAudio = () => {
+  const initAudio = useCallback(() => {
     try {
-      if (!audio.current) {
+      if (!audio.current || audio.current.ctx.state === 'closed') {
         const ctx = new AudioContext();
         const oscillator = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -74,21 +60,73 @@ function CircuitFlow() {
         oscillator.connect(gain); gain.connect(ctx.destination); oscillator.start();
         audio.current = { ctx, oscillator, gain };
       }
-      void audio.current.ctx.resume();
+      void audio.current.ctx.resume().catch(() => setNotice('Sound could not start. Allow sound for this site, then press PUSH again.'));
     } catch { setNotice('Audio is unavailable in this browser; visual simulation remains available.'); }
-  };
+  }, []);
+  const finishPress = useCallback((id: string) => {
+    const press = presses.current.get(id);
+    if (!press || !press.released || press.acknowledgedAt === null || press.timer) return;
+    // Give a short tap an audible duration AFTER the server has evaluated it.
+    press.timer = setTimeout(() => {
+      if (presses.current.get(id) !== press) return;
+      presses.current.delete(id);
+      change(id, 'isPressed', false);
+    }, Math.max(0, 180 - (performance.now() - press.acknowledgedAt)));
+  }, [change]);
+  const handlers = useMemo(() => ({
+    onChangeVoltage: (id: string, value: number) => change(id, 'voltage', value),
+    onChangeResistance: (id: string, value: number) => change(id, 'resistance', value),
+    onChangeCapacitance: (id: string, value: number) => change(id, 'capacitance', value),
+    onChangeLight: (id: string, value: number) => change(id, 'lightLevel', value),
+    onPushPress: (id: string, value: boolean) => {
+      if (!running) return;
+      if (value) {
+        initAudio(); // Retry browser audio unlock in the actual user gesture.
+        clearTimeout(presses.current.get(id)?.timer);
+        presses.current.set(id, { released: false, acknowledgedAt: null });
+        change(id, 'isPressed', true);
+      } else {
+        const press = presses.current.get(id);
+        if (press) { press.released = true; finishPress(id); }
+        else change(id, 'isPressed', false);
+      }
+    },
+    onToggleSwitch: (id: string) => setNodes(current => current.map(n => n.id === id ? { ...n, data: { ...n.data, isOpen: !n.data.isOpen } } : n)),
+  }), [change, running, initAudio, finishPress]);
+
+  const mute = useCallback(() => {
+    if (audio.current) {
+      audio.current.gain.gain.cancelScheduledValues(audio.current.ctx.currentTime);
+      audio.current.gain.gain.setValueAtTime(0, audio.current.ctx.currentTime);
+    }
+  }, []);
+  const stop = useCallback(() => {
+    setRunning(false); mute();
+    for (const press of presses.current.values()) clearTimeout(press.timer);
+    presses.current.clear();
+    setNodes(current => current.map(n => n.type === 'pushbutton' && n.data.isPressed ? { ...n, data: { ...n.data, isPressed: false } } : n));
+  }, [mute]);
+  useEffect(() => {
+    const pending = presses.current;
+    return () => {
+      for (const press of pending.values()) clearTimeout(press.timer);
+      pending.clear();
+      audio.current?.oscillator.stop(); void audio.current?.ctx.close();
+    };
+  }, []);
 
   // Runtime readings are separate from the editable graph. Only electrical edits restart polling.
   const payload = JSON.stringify(circuitPayload(nodes, edges));
   useEffect(() => {
     if (!running) return;
     const controller = new AbortController();
+    const snapshot = JSON.parse(payload);
     let timer: ReturnType<typeof setTimeout>;
     let previousTime = performance.now();
     const tick = async () => {
       try {
         const time = (performance.now() - startTime.current) / 1000;
-        const next = await api<Simulation>('simulate', { ...JSON.parse(payload), elapsed: time }, controller.signal);
+        const next = await api<Simulation>('simulate', { ...snapshot, elapsed: time }, controller.signal);
         if (controller.signal.aborted) return;
         setResult(next); setElapsed(time);
         const delta = Math.min(0.5, (performance.now() - previousTime) / 1000);
@@ -103,6 +141,12 @@ function CircuitFlow() {
           oscillator.frequency.setTargetAtTime(pitch.current, ctx.currentTime, 0.03);
           gain.gain.setTargetAtTime(next.speaker_active ? 0.08 : 0, ctx.currentTime, 0.03);
         }
+        for (const n of snapshot.nodes) {
+          const press = presses.current.get(n.id);
+          if (n.type === 'pushbutton' && n.data.isPressed && press && press.acknowledgedAt === null) {
+            press.acknowledgedAt = performance.now(); finishPress(n.id);
+          }
+        }
         timer = setTimeout(tick, 100);
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -111,7 +155,7 @@ function CircuitFlow() {
     };
     void tick();
     return () => { controller.abort(); clearTimeout(timer); mute(); };
-  }, [running, payload, stop, mute]);
+  }, [running, payload, stop, mute, finishPress]);
 
   const displayNodes = nodes.map(n => ({ ...n, data: {
     ...n.data, ...handlers,

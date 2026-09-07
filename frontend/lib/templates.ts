@@ -31,9 +31,10 @@ export function template(name: string) {
     wire('q2', 'collector', 'c2', 'pos'); wire('c2', 'neg', 'q1', 'base');
     wire('scope1', 'pos', 'q1', 'collector'); wire('scope1', 'neg', 'b1', 'neg');
   } else {
-    node('ldr1', 'ldr', 270, 120, { lightLevel: 20 }); node('led1', 'led', 500, 200);
-    node('v1', 'voltmeter', 740, 120);
-    wire('b1', 'pos', 'ldr1', 'pos'); wire('ldr1', 'neg', 'led1', 'pos'); wire('led1', 'neg', 'b1', 'neg');
+    node('ldr1', 'ldr', 270, 120, { lightLevel: 20 });
+    node('r1', 'resistor', 480, 120, { resistance: 330 }); node('led1', 'led', 690, 200);
+    node('v1', 'voltmeter', 930, 120);
+    wire('b1', 'pos', 'ldr1', 'pos'); wire('ldr1', 'neg', 'r1', 'pos'); wire('r1', 'neg', 'led1', 'pos'); wire('led1', 'neg', 'b1', 'neg');
     wire('v1', 'pos', 'led1', 'pos'); wire('v1', 'neg', 'led1', 'neg');
   }
   return { nodes, edges };

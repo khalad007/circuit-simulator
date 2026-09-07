@@ -4,7 +4,7 @@ export default function PushButtonNode({
   data,
   id,
 }: {
-  data: { isPressed?: boolean; onPushPress?: (id: string, pressed: boolean) => void };
+  data: { isPressed?: boolean; running?: boolean; onPushPress?: (id: string, pressed: boolean) => void };
   id: string;
 }) {
   const isPressed = data.isPressed ?? false;
@@ -16,11 +16,13 @@ export default function PushButtonNode({
       <div className="text-[11px] font-bold text-gray-800">Push Button</div>
 
       <button
+        disabled={!data.running}
+        title={data.running ? 'Tap for a short tone, or hold to sound continuously' : 'Start the simulator first'}
         onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); data.onPushPress?.(id, true); }}
         onPointerUp={() => data.onPushPress?.(id, false)}
         onPointerCancel={() => data.onPushPress?.(id, false)}
         onLostPointerCapture={() => data.onPushPress?.(id, false)}
-        onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); data.onPushPress?.(id, true); } }}
+        onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) data.onPushPress?.(id, true); } }}
         onKeyUp={e => { if (e.key === ' ' || e.key === 'Enter') data.onPushPress?.(id, false); }}
         onBlur={() => data.onPushPress?.(id, false)}
         className={`nodrag w-12 h-12 my-1 rounded-full border-4 font-bold text-xs flex items-center justify-center transition-transform shadow-inner ${
@@ -33,8 +35,9 @@ export default function PushButtonNode({
       </button>
 
       <span className="text-[9px] text-gray-500 font-mono">
-        {isPressed ? 'HELD DOWN' : 'RELEASED'}
+        {!data.running ? 'START SIMULATOR FIRST' : isPressed ? 'PRESSED' : 'RELEASED'}
       </span>
+      <span className="mt-1 text-center text-[9px] text-gray-500">Tap briefly or hold for sound</span>
 
       <Handle type="source" position={Position.Right} id="neg" className="!w-3 !h-3 !bg-gray-700 cursor-pointer" />
     </div>

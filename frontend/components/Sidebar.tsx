@@ -44,7 +44,7 @@ export default function Sidebar({ onSelectTemplate, onAddComponent }: { onSelect
             onClick={() => onSelectTemplate('ldr')}
             className="w-full text-left p-2 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg text-xs font-bold text-amber-800 flex items-center gap-2 shadow-sm transition-all"
           >
-            ☀️ LDR Light Sensor Alarm
+            ☀️ LDR Light Sensor
           </button>
         </div>
       </div>

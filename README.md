@@ -18,10 +18,15 @@ overrides the default model. Restart the backend after changing environment sett
 - Connect voltmeter and oscilloscope probes **across** two terminals. Double-click
   a wire to create a probe junction. Connect an ammeter **in series**, or select an
   unconnected ammeter and double-click the wire where it should be inserted.
-- The siren and flip-flop templates include scopes. Hold the siren's PUSH button
-  to raise pitch; releasing it lowers the displayed pitch envelope. The speaker
+- The siren and flip-flop templates include scopes. Start the simulator, then tap
+  PUSH for a brief tone or hold it to raise pitch continuously. Short taps stay
+  pressed until the backend evaluates them, then sound for at least 180 ms.
+  Releasing the button lowers the displayed pitch envelope. The speaker
   mutes when its power path opens. The flip-flop scope samples alternating collector
   voltage; changing its base resistance or capacitance changes the modeled period.
+- The LDR template is a light-controlled LED: dark = off, bright = on. Its series
+  330-ohm resistor limits current at maximum light. The display treats current
+  below 0.5 mA as off; measurement tools still show the calculated small current.
 
 ## Save, share, and learn
 
